@@ -28,16 +28,18 @@ jobs:
 
       - name: Run Trading Bot
         env:
-          # API Keys from GitHub Secrets
+          SMTP_SERVER: ${{ secrets.SMTP_SERVER }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SENDER_EMAIL: ${{ secrets.SENDER_EMAIL }}
+          SENDER_PASSWORD: ${{ secrets.SENDER_PASSWORD }}
+          RECIPIENT_EMAIL: ${{ secrets.RECIPIENT_EMAIL }}
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+          NVIDIA_API_KEY_ID: ${{ secrets.NVIDIA_API_KEY_ID }}
+          NVIDIA_REASONING_API_KEY: ${{ secrets.NVIDIA_REASONING_API_KEY }}
+          NVIDIA_REASONING_API_KEY_ID: ${{ secrets.NVIDIA_REASONING_API_KEY_ID }}
           TWELVEDATA_API_KEYS: ${{ secrets.TWELVEDATA_API_KEYS }}
-          ALPHAVANTAGE_API_KEYS: ${{ secrets.ALPHAVANTAGE_API_KEYS }}
-          # Mailgun / Email Secrets
-          MAILGUN_API_KEY: ${{ secrets.MAILGUN_API_KEY }}
-          MAILGUN_DOMAIN: ${{ secrets.MAILGUN_DOMAIN }}
-          EMAIL_RECIPIENTS: ${{ secrets.EMAIL_RECIPIENTS }}
-          EMAIL_SENDER: ${{ secrets.EMAIL_SENDER }}
-          # OpenAI / LLM Secrets
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          ARM_LIVE_TRADING: ${{ secrets.ARM_LIVE_TRADING }}
+          LOG_LEVEL: ${{ secrets.LOG_LEVEL }}
         run: |
           python main.py daily_job
 
