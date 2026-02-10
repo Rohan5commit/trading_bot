@@ -518,7 +518,7 @@ class EmailNotifier:
             msg["To"] = self.recipient_email
             msg["Subject"] = subject
             # Some Gmail clients behave oddly when these headers are missing.
-            msg["Date"] = formatdate(localtime=True)
+            msg["Date"] = formatdate(localtime=False) # We set it manually in subject/body
             msg["Message-ID"] = make_msgid()
 
             # base64 avoids quoted-printable soft-wrap artifacts on long lines (tables).

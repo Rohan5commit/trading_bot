@@ -1,5 +1,7 @@
 import json
+from dotenv import load_dotenv
 import logging
+from utils import get_sgt_now
 import os
 import random
 import sqlite3
@@ -9,6 +11,7 @@ from datetime import datetime, timedelta
 import numpy as np
 import pandas as pd
 import yaml
+from utils import get_sgt_now
 
 from ingest_prices import PriceIngestor
 from ingest_news import NewsIngestor
@@ -719,7 +722,7 @@ class DailyBacktester:
                 marker_path = os.path.join(self.results_dir, marker)
                 try:
                     with open(marker_path, "w") as handle:
-                        handle.write(datetime.now().isoformat())
+                        handle.write(get_sgt_now().isoformat())
                 except Exception as exc:
                     logger.warning(f"Failed to write email sent marker: {exc}")
         else:
@@ -965,7 +968,7 @@ def run_daily_job(config_path=None):
             src = "stooq"
 
     pipeline_stats = {
-        'start_time': datetime.now().isoformat(),
+        'start_time': get_sgt_now().isoformat(),
         'steps': [],
         'tickers_total': len(tickers),
         'tickers_processed': 0,
@@ -976,7 +979,7 @@ def run_daily_job(config_path=None):
     
     def log_step(name, status, details=None):
         pipeline_stats['steps'].append({
-            'time': datetime.now().strftime("%H:%M:%S"),
+            'time': get_sgt_now().strftime("%H:%M:%S"),
             'step': name,
             'status': status,
             'details': details

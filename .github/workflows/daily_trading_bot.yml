@@ -12,6 +12,9 @@ jobs:
     permissions:
       contents: write # Needed if we want to commit changes (e.g. database updates, logs)
 
+    env:
+      TZ: Asia/Singapore
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4

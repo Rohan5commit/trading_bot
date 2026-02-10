@@ -19,6 +19,7 @@ import json
 import sqlite3
 import yaml
 from datetime import datetime, time as dtime, timezone, timedelta
+from utils import get_sgt_now
 
 # Config
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -107,8 +108,8 @@ def has_run_today():
       `results/email_sent_<market_date>.ok` (marker), so we can retry if email fails.
     """
     state = _load_state()
-    sgt_tz = timezone(timedelta(hours=8))
-    today_sgt = datetime.now(sgt_tz).strftime("%Y%m%d")
+    now_sgt = get_sgt_now()
+    today_sgt = now_sgt.strftime("%Y%m%d")
     return (state.get("last_success_sgt_date") == today_sgt) and (state.get("last_status") == "success")
 
 def _load_config():
@@ -167,9 +168,7 @@ def run_pipeline():
 
 def get_sgt_time():
     """Get current time in Singapore (UTC+8)"""
-    # Create SGT timezone (UTC+8)
-    sgt_tz = timezone(timedelta(hours=8))
-    return datetime.now(sgt_tz)
+    return get_sgt_now()
 
 def main_loop():
     logger.info("Scheduler started. Monitoring for 8am start time (Singapore Time)...")
