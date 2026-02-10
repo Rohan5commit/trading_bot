@@ -1,0 +1,504 @@
+ticker,exchange,sector,market_cap
+A,US,Health Care,0
+AAPL,US,Information Technology,0
+ABBV,US,Health Care,0
+ABNB,US,Consumer Discretionary,0
+ABT,US,Health Care,0
+ACGL,US,Financials,0
+ACN,US,Information Technology,0
+ADBE,US,Information Technology,0
+ADI,US,Information Technology,0
+ADM,US,Consumer Staples,0
+ADP,US,Industrials,0
+ADSK,US,Information Technology,0
+AEE,US,Utilities,0
+AEP,US,Utilities,0
+AES,US,Utilities,0
+AFL,US,Financials,0
+AIG,US,Financials,0
+AIZ,US,Financials,0
+AJG,US,Financials,0
+AKAM,US,Information Technology,0
+ALB,US,Materials,0
+ALGN,US,Health Care,0
+ALL,US,Financials,0
+ALLE,US,Industrials,0
+AMAT,US,Information Technology,0
+AMCR,US,Materials,0
+AMD,US,Information Technology,0
+AME,US,Industrials,0
+AMGN,US,Health Care,0
+AMP,US,Financials,0
+AMT,US,Real Estate,0
+AMZN,US,Consumer Discretionary,0
+ANET,US,Information Technology,0
+AON,US,Financials,0
+AOS,US,Industrials,0
+APA,US,Energy,0
+APD,US,Materials,0
+APH,US,Information Technology,0
+APO,US,Financials,0
+APTV,US,Consumer Discretionary,0
+ARE,US,Real Estate,0
+ATO,US,Utilities,0
+AVB,US,Real Estate,0
+AVGO,US,Information Technology,0
+AVY,US,Materials,0
+AWK,US,Utilities,0
+AXON,US,Industrials,0
+AXP,US,Financials,0
+AZO,US,Consumer Discretionary,0
+BA,US,Industrials,0
+BAC,US,Financials,0
+BALL,US,Materials,0
+BAX,US,Health Care,0
+BBY,US,Consumer Discretionary,0
+BDX,US,Health Care,0
+BEN,US,Financials,0
+BF.B,US,Consumer Staples,0
+BG,US,Consumer Staples,0
+BIIB,US,Health Care,0
+BK,US,Financials,0
+BKNG,US,Consumer Discretionary,0
+BKR,US,Energy,0
+BLDR,US,Industrials,0
+BLK,US,Financials,0
+BMY,US,Health Care,0
+BR,US,Industrials,0
+BRK.B,US,Financials,0
+BRO,US,Financials,0
+BSX,US,Health Care,0
+BX,US,Financials,0
+BXP,US,Real Estate,0
+C,US,Financials,0
+CAG,US,Consumer Staples,0
+CAH,US,Health Care,0
+CARR,US,Industrials,0
+CAT,US,Industrials,0
+CB,US,Financials,0
+CBOE,US,Financials,0
+CBRE,US,Real Estate,0
+CCI,US,Real Estate,0
+CCL,US,Consumer Discretionary,0
+CDNS,US,Information Technology,0
+CDW,US,Information Technology,0
+CEG,US,Utilities,0
+CF,US,Materials,0
+CFG,US,Financials,0
+CHD,US,Consumer Staples,0
+CHRW,US,Industrials,0
+CHTR,US,Communication Services,0
+CI,US,Health Care,0
+CINF,US,Financials,0
+CL,US,Consumer Staples,0
+CLX,US,Consumer Staples,0
+CMCSA,US,Communication Services,0
+CME,US,Financials,0
+CMG,US,Consumer Discretionary,0
+CMI,US,Industrials,0
+CMS,US,Utilities,0
+CNC,US,Health Care,0
+CNP,US,Utilities,0
+COF,US,Financials,0
+COIN,US,Financials,0
+COO,US,Health Care,0
+COP,US,Energy,0
+COR,US,Health Care,0
+COST,US,Consumer Staples,0
+CPAY,US,Financials,0
+CPB,US,Consumer Staples,0
+CPRT,US,Industrials,0
+CPT,US,Real Estate,0
+CRL,US,Health Care,0
+CRM,US,Information Technology,0
+CRWD,US,Information Technology,0
+CSCO,US,Information Technology,0
+CSGP,US,Real Estate,0
+CSX,US,Industrials,0
+CTAS,US,Industrials,0
+CTRA,US,Energy,0
+CTSH,US,Information Technology,0
+CTVA,US,Materials,0
+CVS,US,Health Care,0
+CVX,US,Energy,0
+CZR,US,Consumer Discretionary,0
+D,US,Utilities,0
+DAL,US,Industrials,0
+DASH,US,Consumer Discretionary,0
+DAY,US,Industrials,0
+DD,US,Materials,0
+DDOG,US,Information Technology,0
+DE,US,Industrials,0
+DECK,US,Consumer Discretionary,0
+DELL,US,Information Technology,0
+DG,US,Consumer Staples,0
+DGX,US,Health Care,0
+DHI,US,Consumer Discretionary,0
+DHR,US,Health Care,0
+DIS,US,Communication Services,0
+DLR,US,Real Estate,0
+DLTR,US,Consumer Staples,0
+DOC,US,Real Estate,0
+DOV,US,Industrials,0
+DOW,US,Materials,0
+DPZ,US,Consumer Discretionary,0
+DRI,US,Consumer Discretionary,0
+DTE,US,Utilities,0
+DUK,US,Utilities,0
+DVA,US,Health Care,0
+DVN,US,Energy,0
+DXCM,US,Health Care,0
+EA,US,Communication Services,0
+EBAY,US,Consumer Discretionary,0
+ECL,US,Materials,0
+ED,US,Utilities,0
+EFX,US,Industrials,0
+EG,US,Financials,0
+EIX,US,Utilities,0
+EL,US,Consumer Staples,0
+ELV,US,Health Care,0
+EMN,US,Materials,0
+EMR,US,Industrials,0
+ENPH,US,Information Technology,0
+EOG,US,Energy,0
+EPAM,US,Information Technology,0
+EQIX,US,Real Estate,0
+EQR,US,Real Estate,0
+EQT,US,Energy,0
+ERIE,US,Financials,0
+ES,US,Utilities,0
+ESS,US,Real Estate,0
+ETN,US,Industrials,0
+ETR,US,Utilities,0
+EVRG,US,Utilities,0
+EW,US,Health Care,0
+EXC,US,Utilities,0
+EXE,US,Energy,0
+EXPD,US,Industrials,0
+EXPE,US,Consumer Discretionary,0
+EXR,US,Real Estate,0
+F,US,Consumer Discretionary,0
+FANG,US,Energy,0
+FAST,US,Industrials,0
+FCX,US,Materials,0
+FDS,US,Financials,0
+FDX,US,Industrials,0
+FE,US,Utilities,0
+FFIV,US,Information Technology,0
+FI,US,Financials,0
+FICO,US,Information Technology,0
+FIS,US,Financials,0
+FITB,US,Financials,0
+FOX,US,Communication Services,0
+FOXA,US,Communication Services,0
+FRT,US,Real Estate,0
+FSLR,US,Information Technology,0
+FTNT,US,Information Technology,0
+FTV,US,Industrials,0
+GD,US,Industrials,0
+GDDY,US,Information Technology,0
+GE,US,Industrials,0
+GEHC,US,Health Care,0
+GEN,US,Information Technology,0
+GEV,US,Industrials,0
+GILD,US,Health Care,0
+GIS,US,Consumer Staples,0
+GL,US,Financials,0
+GLW,US,Information Technology,0
+GM,US,Consumer Discretionary,0
+GNRC,US,Industrials,0
+GOOG,US,Communication Services,0
+GOOGL,US,Communication Services,0
+GPC,US,Consumer Discretionary,0
+GPN,US,Financials,0
+GRMN,US,Consumer Discretionary,0
+GS,US,Financials,0
+GWW,US,Industrials,0
+HAL,US,Energy,0
+HAS,US,Consumer Discretionary,0
+HBAN,US,Financials,0
+HCA,US,Health Care,0
+HD,US,Consumer Discretionary,0
+HIG,US,Financials,0
+HII,US,Industrials,0
+HLT,US,Consumer Discretionary,0
+HOLX,US,Health Care,0
+HON,US,Industrials,0
+HPE,US,Information Technology,0
+HPQ,US,Information Technology,0
+HRL,US,Consumer Staples,0
+HSIC,US,Health Care,0
+HST,US,Real Estate,0
+HSY,US,Consumer Staples,0
+HUBB,US,Industrials,0
+HUM,US,Health Care,0
+HWM,US,Industrials,0
+IBM,US,Information Technology,0
+ICE,US,Financials,0
+IDXX,US,Health Care,0
+IEX,US,Industrials,0
+IFF,US,Materials,0
+INCY,US,Health Care,0
+INTC,US,Information Technology,0
+INTU,US,Information Technology,0
+INVH,US,Real Estate,0
+IP,US,Materials,0
+IPG,US,Communication Services,0
+IQV,US,Health Care,0
+IR,US,Industrials,0
+IRM,US,Real Estate,0
+ISRG,US,Health Care,0
+IT,US,Information Technology,0
+ITW,US,Industrials,0
+IVZ,US,Financials,0
+J,US,Industrials,0
+JBHT,US,Industrials,0
+JBL,US,Information Technology,0
+JCI,US,Industrials,0
+JKHY,US,Financials,0
+JNJ,US,Health Care,0
+JPM,US,Financials,0
+K,US,Consumer Staples,0
+KDP,US,Consumer Staples,0
+KEY,US,Financials,0
+KEYS,US,Information Technology,0
+KHC,US,Consumer Staples,0
+KIM,US,Real Estate,0
+KKR,US,Financials,0
+KLAC,US,Information Technology,0
+KMB,US,Consumer Staples,0
+KMI,US,Energy,0
+KMX,US,Consumer Discretionary,0
+KO,US,Consumer Staples,0
+KR,US,Consumer Staples,0
+KVUE,US,Consumer Staples,0
+L,US,Financials,0
+LDOS,US,Industrials,0
+LEN,US,Consumer Discretionary,0
+LH,US,Health Care,0
+LHX,US,Industrials,0
+LII,US,Industrials,0
+LIN,US,Materials,0
+LKQ,US,Consumer Discretionary,0
+LLY,US,Health Care,0
+LMT,US,Industrials,0
+LNT,US,Utilities,0
+LOW,US,Consumer Discretionary,0
+LRCX,US,Information Technology,0
+LULU,US,Consumer Discretionary,0
+LUV,US,Industrials,0
+LVS,US,Consumer Discretionary,0
+LW,US,Consumer Staples,0
+LYB,US,Materials,0
+LYV,US,Communication Services,0
+MA,US,Financials,0
+MAA,US,Real Estate,0
+MAR,US,Consumer Discretionary,0
+MAS,US,Industrials,0
+MCD,US,Consumer Discretionary,0
+MCHP,US,Information Technology,0
+MCK,US,Health Care,0
+MCO,US,Financials,0
+MDLZ,US,Consumer Staples,0
+MDT,US,Health Care,0
+MET,US,Financials,0
+META,US,Communication Services,0
+MGM,US,Consumer Discretionary,0
+MHK,US,Consumer Discretionary,0
+MKC,US,Consumer Staples,0
+MKTX,US,Financials,0
+MLM,US,Materials,0
+MMC,US,Financials,0
+MMM,US,Industrials,0
+MNST,US,Consumer Staples,0
+MO,US,Consumer Staples,0
+MOH,US,Health Care,0
+MOS,US,Materials,0
+MPC,US,Energy,0
+MPWR,US,Information Technology,0
+MRK,US,Health Care,0
+MRNA,US,Health Care,0
+MS,US,Financials,0
+MSCI,US,Financials,0
+MSFT,US,Information Technology,0
+MSI,US,Information Technology,0
+MTB,US,Financials,0
+MTCH,US,Communication Services,0
+MTD,US,Health Care,0
+MU,US,Information Technology,0
+NCLH,US,Consumer Discretionary,0
+NDAQ,US,Financials,0
+NDSN,US,Industrials,0
+NEE,US,Utilities,0
+NEM,US,Materials,0
+NFLX,US,Communication Services,0
+NI,US,Utilities,0
+NKE,US,Consumer Discretionary,0
+NOC,US,Industrials,0
+NOW,US,Information Technology,0
+NRG,US,Utilities,0
+NSC,US,Industrials,0
+NTAP,US,Information Technology,0
+NTRS,US,Financials,0
+NUE,US,Materials,0
+NVDA,US,Information Technology,0
+NVR,US,Consumer Discretionary,0
+NWS,US,Communication Services,0
+NWSA,US,Communication Services,0
+NXPI,US,Information Technology,0
+O,US,Real Estate,0
+ODFL,US,Industrials,0
+OKE,US,Energy,0
+OMC,US,Communication Services,0
+ON,US,Information Technology,0
+ORCL,US,Information Technology,0
+ORLY,US,Consumer Discretionary,0
+OTIS,US,Industrials,0
+OXY,US,Energy,0
+PANW,US,Information Technology,0
+PAYC,US,Industrials,0
+PAYX,US,Industrials,0
+PCAR,US,Industrials,0
+PCG,US,Utilities,0
+PEG,US,Utilities,0
+PEP,US,Consumer Staples,0
+PFE,US,Health Care,0
+PFG,US,Financials,0
+PG,US,Consumer Staples,0
+PGR,US,Financials,0
+PH,US,Industrials,0
+PHM,US,Consumer Discretionary,0
+PKG,US,Materials,0
+PLD,US,Real Estate,0
+PLTR,US,Information Technology,0
+PM,US,Consumer Staples,0
+PNC,US,Financials,0
+PNR,US,Industrials,0
+PNW,US,Utilities,0
+PODD,US,Health Care,0
+POOL,US,Consumer Discretionary,0
+PPG,US,Materials,0
+PPL,US,Utilities,0
+PRU,US,Financials,0
+PSA,US,Real Estate,0
+PSKY,US,Communication Services,0
+PSX,US,Energy,0
+PTC,US,Information Technology,0
+PWR,US,Industrials,0
+PYPL,US,Financials,0
+QCOM,US,Information Technology,0
+RCL,US,Consumer Discretionary,0
+REG,US,Real Estate,0
+REGN,US,Health Care,0
+RF,US,Financials,0
+RJF,US,Financials,0
+RL,US,Consumer Discretionary,0
+RMD,US,Health Care,0
+ROK,US,Industrials,0
+ROL,US,Industrials,0
+ROP,US,Information Technology,0
+ROST,US,Consumer Discretionary,0
+RSG,US,Industrials,0
+RTX,US,Industrials,0
+RVTY,US,Health Care,0
+SBAC,US,Real Estate,0
+SBUX,US,Consumer Discretionary,0
+SCHW,US,Financials,0
+SHW,US,Materials,0
+SJM,US,Consumer Staples,0
+SLB,US,Energy,0
+SMCI,US,Information Technology,0
+SNA,US,Industrials,0
+SNPS,US,Information Technology,0
+SO,US,Utilities,0
+SOLV,US,Health Care,0
+SPG,US,Real Estate,0
+SPGI,US,Financials,0
+SRE,US,Utilities,0
+STE,US,Health Care,0
+STLD,US,Materials,0
+STT,US,Financials,0
+STX,US,Information Technology,0
+STZ,US,Consumer Staples,0
+SW,US,Materials,0
+SWK,US,Industrials,0
+SWKS,US,Information Technology,0
+SYF,US,Financials,0
+SYK,US,Health Care,0
+SYY,US,Consumer Staples,0
+T,US,Communication Services,0
+TAP,US,Consumer Staples,0
+TDG,US,Industrials,0
+TDY,US,Information Technology,0
+TECH,US,Health Care,0
+TEL,US,Information Technology,0
+TER,US,Information Technology,0
+TFC,US,Financials,0
+TGT,US,Consumer Staples,0
+TJX,US,Consumer Discretionary,0
+TKO,US,Communication Services,0
+TMO,US,Health Care,0
+TMUS,US,Communication Services,0
+TPL,US,Energy,0
+TPR,US,Consumer Discretionary,0
+TRGP,US,Energy,0
+TRMB,US,Information Technology,0
+TROW,US,Financials,0
+TRV,US,Financials,0
+TSCO,US,Consumer Discretionary,0
+TSLA,US,Consumer Discretionary,0
+TSN,US,Consumer Staples,0
+TT,US,Industrials,0
+TTD,US,Communication Services,0
+TTWO,US,Communication Services,0
+TXN,US,Information Technology,0
+TXT,US,Industrials,0
+TYL,US,Information Technology,0
+UAL,US,Industrials,0
+UBER,US,Industrials,0
+UDR,US,Real Estate,0
+UHS,US,Health Care,0
+ULTA,US,Consumer Discretionary,0
+UNH,US,Health Care,0
+UNP,US,Industrials,0
+UPS,US,Industrials,0
+URI,US,Industrials,0
+USB,US,Financials,0
+V,US,Financials,0
+VICI,US,Real Estate,0
+VLO,US,Energy,0
+VLTO,US,Industrials,0
+VMC,US,Materials,0
+VRSK,US,Industrials,0
+VRSN,US,Information Technology,0
+VRTX,US,Health Care,0
+VST,US,Utilities,0
+VTR,US,Real Estate,0
+VTRS,US,Health Care,0
+VZ,US,Communication Services,0
+WAB,US,Industrials,0
+WAT,US,Health Care,0
+WBA,US,Consumer Staples,0
+WBD,US,Communication Services,0
+WDAY,US,Information Technology,0
+WDC,US,Information Technology,0
+WEC,US,Utilities,0
+WELL,US,Real Estate,0
+WFC,US,Financials,0
+WM,US,Industrials,0
+WMB,US,Energy,0
+WMT,US,Consumer Staples,0
+WRB,US,Financials,0
+WSM,US,Consumer Discretionary,0
+WST,US,Health Care,0
+WTW,US,Financials,0
+WY,US,Real Estate,0
+WYNN,US,Consumer Discretionary,0
+XEL,US,Utilities,0
+XOM,US,Energy,0
+XYL,US,Industrials,0
+XYZ,US,Financials,0
+YUM,US,Consumer Discretionary,0
+ZBH,US,Health Care,0
+ZBRA,US,Information Technology,0
+ZTS,US,Health Care,0

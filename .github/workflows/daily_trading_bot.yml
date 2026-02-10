@@ -1,0 +1,52 @@
+name: Daily Trading Bot
+
+on:
+  schedule:
+    # Runs at 13:30 UTC (9:30 AM EST) every weekday (Mon-Fri)
+    - cron: '30 13 * * 1-5'
+  workflow_dispatch:
+
+jobs:
+  run-trading-bot:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # Needed if we want to commit changes (e.g. database updates, logs)
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+
+      - name: Run Trading Bot
+        env:
+          # API Keys from GitHub Secrets
+          TWELVEDATA_API_KEYS: ${{ secrets.TWELVEDATA_API_KEYS }}
+          ALPHAVANTAGE_API_KEYS: ${{ secrets.ALPHAVANTAGE_API_KEYS }}
+          # Mailgun / Email Secrets
+          MAILGUN_API_KEY: ${{ secrets.MAILGUN_API_KEY }}
+          MAILGUN_DOMAIN: ${{ secrets.MAILGUN_DOMAIN }}
+          EMAIL_RECIPIENTS: ${{ secrets.EMAIL_RECIPIENTS }}
+          EMAIL_SENDER: ${{ secrets.EMAIL_SENDER }}
+          # OpenAI / LLM Secrets
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          python main.py daily_job
+
+      - name: Upload artifacts (logs/reports)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bot-results
+          path: |
+            results/*.csv
+            *.log
+          retention-days: 7

@@ -1,0 +1,102 @@
+ticker,exchange,sector,market_cap
+ADBE,NASDAQ,Technology,0
+AMD,NASDAQ,Technology,0
+ABNB,NASDAQ,Consumer Discretionary,0
+ALNY,NASDAQ,Healthcare,0
+GOOGL,NASDAQ,Communication Services,0
+GOOG,NASDAQ,Communication Services,0
+AMZN,NASDAQ,Consumer Discretionary,0
+AEP,NASDAQ,Utilities,0
+AMGN,NASDAQ,Healthcare,0
+ADI,NASDAQ,Technology,0
+AAPL,NASDAQ,Technology,0
+AMAT,NASDAQ,Technology,0
+APP,NASDAQ,Technology,0
+ARM,NASDAQ,Technology,0
+ASML,NASDAQ,Technology,0
+AZN,NASDAQ,Healthcare,0
+TEAM,NASDAQ,Technology,0
+ADSK,NASDAQ,Technology,0
+ADP,NASDAQ,Industrials,0
+AXON,NASDAQ,Industrials,0
+BKR,NASDAQ,Energy,0
+BKNG,NASDAQ,Consumer Discretionary,0
+AVGO,NASDAQ,Technology,0
+CDNS,NASDAQ,Technology,0
+CHTR,NASDAQ,Communication Services,0
+CTAS,NASDAQ,Industrials,0
+CSCO,NASDAQ,Technology,0
+CCEP,NASDAQ,Consumer Staples,0
+CTSH,NASDAQ,Technology,0
+CMCSA,NASDAQ,Communication Services,0
+CEG,NASDAQ,Utilities,0
+CPRT,NASDAQ,Industrials,0
+CSGP,NASDAQ,Real Estate,0
+COST,NASDAQ,Consumer Staples,0
+CRWD,NASDAQ,Technology,0
+CSX,NASDAQ,Industrials,0
+DDOG,NASDAQ,Technology,0
+DXCM,NASDAQ,Healthcare,0
+FANG,NASDAQ,Energy,0
+DASH,NASDAQ,Technology,0
+EA,NASDAQ,Communication Services,0
+EXC,NASDAQ,Utilities,0
+FAST,NASDAQ,Industrials,0
+FER,NASDAQ,Industrials,0
+FTNT,NASDAQ,Technology,0
+GEHC,NASDAQ,Healthcare,0
+GILD,NASDAQ,Healthcare,0
+HON,NASDAQ,Industrials,0
+IDXX,NASDAQ,Healthcare,0
+INSM,NASDAQ,Healthcare,0
+INTC,NASDAQ,Technology,0
+INTU,NASDAQ,Technology,0
+ISRG,NASDAQ,Healthcare,0
+KDP,NASDAQ,Consumer Staples,0
+KLAC,NASDAQ,Technology,0
+KHC,NASDAQ,Consumer Staples,0
+LRCX,NASDAQ,Technology,0
+LIN,NASDAQ,Materials,0
+MAR,NASDAQ,Consumer Discretionary,0
+MRVL,NASDAQ,Technology,0
+MELI,NASDAQ,Consumer Discretionary,0
+META,NASDAQ,Communication Services,0
+MCHP,NASDAQ,Technology,0
+MU,NASDAQ,Technology,0
+MSFT,NASDAQ,Technology,0
+MSTR,NASDAQ,Technology,0
+MDLZ,NASDAQ,Consumer Staples,0
+MPWR,NASDAQ,Technology,0
+MNST,NASDAQ,Consumer Staples,0
+NFLX,NASDAQ,Communication Services,0
+NVDA,NASDAQ,Technology,0
+NXPI,NASDAQ,Technology,0
+ORLY,NASDAQ,Consumer Discretionary,0
+ODFL,NASDAQ,Industrials,0
+PCAR,NASDAQ,Industrials,0
+PLTR,NASDAQ,Technology,0
+PANW,NASDAQ,Technology,0
+PAYX,NASDAQ,Industrials,0
+PYPL,NASDAQ,Financials,0
+PDD,NASDAQ,Consumer Discretionary,0
+PEP,NASDAQ,Consumer Staples,0
+QCOM,NASDAQ,Technology,0
+REGN,NASDAQ,Healthcare,0
+ROP,NASDAQ,Industrials,0
+ROST,NASDAQ,Consumer Discretionary,0
+STX,NASDAQ,Technology,0
+SHOP,NASDAQ,Technology,0
+SBUX,NASDAQ,Consumer Discretionary,0
+SNPS,NASDAQ,Technology,0
+TMUS,NASDAQ,Communication Services,0
+TTWO,NASDAQ,Communication Services,0
+TSLA,NASDAQ,Consumer Discretionary,0
+TXN,NASDAQ,Technology,0
+TRI,NASDAQ,Industrials,0
+VRSK,NASDAQ,Industrials,0
+VRTX,NASDAQ,Healthcare,0
+WBD,NASDAQ,Communication Services,0
+WDC,NASDAQ,Technology,0
+WDAY,NASDAQ,Technology,0
+XEL,NASDAQ,Utilities,0
+ZS,NASDAQ,Technology,0

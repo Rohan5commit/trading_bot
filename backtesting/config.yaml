@@ -1,0 +1,129 @@
+universe:
+  name: NASDAQ100
+  source: wikipedia
+  source_url: https://en.wikipedia.org/wiki/Nasdaq-100
+  refresh_method: daily
+  membership_timestamp: 2024-12-31
+  symbols_override: []
+
+bars:
+  interval: 4H
+  source_interval: 1h
+  timezone: America/New_York
+  market_hours:
+    open: "09:30"
+    close: "16:00"
+  align_rule: market_hours_only
+  eod_run_time: "16:30"
+
+portfolio:
+  sizing: equal_weight
+  max_positions: 20
+  rebalancing_cadence: weekly
+  cash_handling: hold_cash
+  dividends: true
+
+objective:
+  primary: CAGR
+  secondary:
+    - drawdown
+    - volatility
+    - turnover
+    - win_rate
+
+risk_rails:
+  max_position_count: 20
+  max_daily_turnover: 0.25
+  max_gap_exposure: 0.05
+  safety_switch: false
+
+strategy:
+  enabled: false
+  # PineScript support is limited; if unsupported, extend src/engine/pine_adapter.py or implement a Python strategy.
+  type: native
+  pine_script_path: ""
+  name: simple_momentum
+  lookback_days: 20
+  take_profit:
+    enabled: true
+    tiers:
+      - pct: 0.05
+        trim: 0.25
+      - pct: 0.10
+        trim: 0.50
+  exit_rules:
+    time_based_days: 10
+    indicator_based: sma_cross
+
+meta_learning:
+  mode: online_update
+  window_days: 60
+  learning_rate: 0.1
+  model_selector:
+    strategies:
+      - simple_momentum
+      - mean_reversion
+
+signals:
+  enabled: true
+  top_n: 15
+  buy_threshold: 0.55
+  lookback_days: 120
+  momentum_lookback: 20
+  mean_reversion_window: 20
+  expected_holding_period: "1d"
+
+scheduler:
+  timezone: Asia/Singapore
+  run_time_sgt: "08:00"
+  window_end_sgt: "00:00"
+  wifi_check_minutes: 5
+  state_path: logs/scheduler_state.json
+  env_path: .env
+
+backtest:
+  start_date: 2022-01-01
+  end_date: 2022-06-30
+  initial_capital: 100000
+  benchmark: SPY
+  walk_forward:
+    enabled: true
+    train_days: 60
+    test_days: 20
+    step_days: 20
+  nested_cv:
+    enabled: true
+    folds: 3
+    parameter_grid:
+      lookback_days:
+        - 10
+        - 20
+        - 30
+  monte_carlo:
+    enabled: true
+    simulations: 500
+    seed: 42
+
+report:
+  title: "NASDAQ100 4H Backtest"
+  notes: "Default configuration. Update config.yaml for experiments."
+
+data:
+  provider: twelvedata
+  fallback_to_sample: false
+  twelvedata:
+    base_url: "https://api.twelvedata.com"
+    api_key_env: TWELVEDATA_API_KEY
+    timeout_seconds: 20
+
+email:
+  enabled: true
+  smtp_host: smtp.gmail.com
+  smtp_port: 587
+  from: "rohan.santhoshkumar1@gmail.com"
+  to:
+    - "rohan.santhoshkumar@gmail.com"
+  subject_prefix: "Quant model"
+  username_env: SMTP_USERNAME
+  password_env: SMTP_PASSWORD
+  timeout_seconds: 20

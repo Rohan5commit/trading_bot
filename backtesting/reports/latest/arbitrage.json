@@ -1,0 +1,201 @@
+{
+  "pairs": [
+    {
+      "symbol_a": "GOOGL",
+      "symbol_b": "GOOG",
+      "correlation": 0.9988195600368279
+    },
+    {
+      "symbol_a": "PDD",
+      "symbol_b": "QCOM",
+      "correlation": 0.5268795580083967
+    },
+    {
+      "symbol_a": "AMZN",
+      "symbol_b": "SHOP",
+      "correlation": 0.4792348430248306
+    },
+    {
+      "symbol_a": "GOOG",
+      "symbol_b": "SHOP",
+      "correlation": 0.47675439004881826
+    },
+    {
+      "symbol_a": "AMZN",
+      "symbol_b": "PDD",
+      "correlation": 0.4731697902096859
+    },
+    {
+      "symbol_a": "GOOGL",
+      "symbol_b": "SHOP",
+      "correlation": 0.4724201554783287
+    },
+    {
+      "symbol_a": "QCOM",
+      "symbol_b": "ROST",
+      "correlation": 0.4720037696761006
+    },
+    {
+      "symbol_a": "ADBE",
+      "symbol_b": "ABNB",
+      "correlation": 0.45365304741792617
+    },
+    {
+      "symbol_a": "AMZN",
+      "symbol_b": "QCOM",
+      "correlation": 0.4435295187733027
+    },
+    {
+      "symbol_a": "QCOM",
+      "symbol_b": "SHOP",
+      "correlation": 0.43886348813371284
+    },
+    {
+      "symbol_a": "ADBE",
+      "symbol_b": "ROP",
+      "correlation": 0.37481161859872153
+    },
+    {
+      "symbol_a": "GOOGL",
+      "symbol_b": "QCOM",
+      "correlation": 0.3660664718408419
+    },
+    {
+      "symbol_a": "PDD",
+      "symbol_b": "SHOP",
+      "correlation": 0.3647020050855773
+    },
+    {
+      "symbol_a": "GOOG",
+      "symbol_b": "QCOM",
+      "correlation": 0.3614690549200272
+    },
+    {
+      "symbol_a": "ABNB",
+      "symbol_b": "QCOM",
+      "correlation": 0.3554818211220743
+    },
+    {
+      "symbol_a": "ABNB",
+      "symbol_b": "AMZN",
+      "correlation": 0.3426664508979844
+    },
+    {
+      "symbol_a": "ABNB",
+      "symbol_b": "ROST",
+      "correlation": 0.34134349472867437
+    },
+    {
+      "symbol_a": "GOOGL",
+      "symbol_b": "STX",
+      "correlation": 0.33738732327559673
+    },
+    {
+      "symbol_a": "ADBE",
+      "symbol_b": "QCOM",
+      "correlation": 0.3265777911931152
+    },
+    {
+      "symbol_a": "GOOG",
+      "symbol_b": "STX",
+      "correlation": 0.32570015682244713
+    },
+    {
+      "symbol_a": "ABNB",
+      "symbol_b": "SHOP",
+      "correlation": 0.3123338229176481
+    },
+    {
+      "symbol_a": "PDD",
+      "symbol_b": "STX",
+      "correlation": 0.3098672962633928
+    },
+    {
+      "symbol_a": "ADBE",
+      "symbol_b": "AMZN",
+      "correlation": 0.30632967345474055
+    },
+    {
+      "symbol_a": "AMD",
+      "symbol_b": "SHOP",
+      "correlation": 0.3048509912631165
+    },
+    {
+      "symbol_a": "AMZN",
+      "symbol_b": "ROST",
+      "correlation": 0.30204086780108585
+    }
+  ],
+  "opportunities": [
+    {
+      "symbol_a": "AMD",
+      "symbol_b": "SHOP",
+      "correlation": 0.3048509912631165,
+      "zscore": 2.5900359311745054,
+      "direction": "SELL_A_BUY_B"
+    },
+    {
+      "symbol_a": "QCOM",
+      "symbol_b": "ROST",
+      "correlation": 0.4720037696761006,
+      "zscore": -2.3334964818551014,
+      "direction": "BUY_A_SELL_B"
+    },
+    {
+      "symbol_a": "ADBE",
+      "symbol_b": "AMZN",
+      "correlation": 0.30632967345474055,
+      "zscore": -2.2079326975335967,
+      "direction": "BUY_A_SELL_B"
+    },
+    {
+      "symbol_a": "ABNB",
+      "symbol_b": "SHOP",
+      "correlation": 0.3123338229176481,
+      "zscore": 2.095131463016385,
+      "direction": "SELL_A_BUY_B"
+    },
+    {
+      "symbol_a": "ADBE",
+      "symbol_b": "ABNB",
+      "correlation": 0.45365304741792617,
+      "zscore": -1.9467581296323864,
+      "direction": "BUY_A_SELL_B"
+    },
+    {
+      "symbol_a": "ADBE",
+      "symbol_b": "ROP",
+      "correlation": 0.37481161859872153,
+      "zscore": -1.9108125363246857,
+      "direction": "BUY_A_SELL_B"
+    },
+    {
+      "symbol_a": "ABNB",
+      "symbol_b": "ROST",
+      "correlation": 0.34134349472867437,
+      "zscore": -1.8992558862598805,
+      "direction": "BUY_A_SELL_B"
+    },
+    {
+      "symbol_a": "PDD",
+      "symbol_b": "SHOP",
+      "correlation": 0.3647020050855773,
+      "zscore": -1.7853286148203913,
+      "direction": "BUY_A_SELL_B"
+    },
+    {
+      "symbol_a": "ABNB",
+      "symbol_b": "AMZN",
+      "correlation": 0.3426664508979844,
+      "zscore": -1.736560854566173,
+      "direction": "BUY_A_SELL_B"
+    },
+    {
+      "symbol_a": "GOOG",
+      "symbol_b": "STX",
+      "correlation": 0.32570015682244713,
+      "zscore": -1.7299154905836838,
+      "direction": "BUY_A_SELL_B"
+    }
+  ]
+}

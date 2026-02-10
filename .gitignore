@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.pyc
+
+# Environment and Secrets
+.env
+.env.*
+
+# Data and Models
+data/*.db
+data/*.csv
+models/*.npy
+feature_store/
+
+# Logs and Results
+*.log
+results/
+logs/
+
+# IDE
+.vscode/
+.idea/
+.DS_Store
+
+# Mac
+.DS_Store

@@ -1,0 +1,7 @@
+{
+  "weights": {
+    "momentum": 0.5,
+    "mean_reversion": 0.5
+  },
+  "last_update": "2026-01-21"
+}
