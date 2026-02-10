@@ -2,8 +2,8 @@ name: Daily Trading Bot
 
 on:
   schedule:
-    # Runs at 13:30 UTC (9:30 AM EST) every weekday (Mon-Fri)
-    - cron: '30 13 * * 1-5'
+    # Runs at 00:00 UTC (8:00 AM SGT) Tuesday-Saturday
+    - cron: '0 0 * * 2-6'
   workflow_dispatch:
 
 jobs:
