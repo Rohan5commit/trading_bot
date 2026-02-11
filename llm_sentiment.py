@@ -47,7 +47,9 @@ def _extract_json(text):
         try:
             return json.loads(cleaned[list_start:list_end + 1])
         except json.JSONDecodeError:
-            return None
+            pass
+            
+    logger.warning("Failed to extract JSON from LLM response. Raw text snippet: %s", (text[:500] + "...") if len(text) > 500 else text)
     return None
 
 
@@ -209,13 +211,18 @@ class NvidiaChatClient:
             choice = choices[0]
             message = choice.get("message", {})
             # Some NVIDIA reasoning-capable models return output in `reasoning_content`
-            # and may set `content` to null.
+            # and may set `content` to null or an empty string.
             content = message.get("content")
+            if isinstance(content, str) and content.strip():
+                return content.strip()
+            
+            reasoning = message.get("reasoning_content")
+            if isinstance(reasoning, str) and reasoning.strip():
+                return reasoning.strip()
+                
             if isinstance(content, str):
                 return content.strip()
-            reasoning = message.get("reasoning_content")
-            if isinstance(reasoning, str):
-                return reasoning.strip()
+
             if "text" in choice:
                 return choice["text"].strip()
         if "text" in data:
