@@ -75,6 +75,12 @@ class NvidiaChatClient:
     def __init__(self, llm_cfg):
         self.enabled = llm_cfg.get("enabled", False)
         self.model = llm_cfg.get("model", "stockmark-2-100b-instruct")
+        fallback_models = llm_cfg.get("fallback_models", [])
+        if isinstance(fallback_models, str):
+            fallback_models = [fallback_models]
+        if not isinstance(fallback_models, list):
+            fallback_models = []
+        self.fallback_models = [str(m).strip() for m in fallback_models if str(m).strip()]
         self.base_url = llm_cfg.get(
             "base_url",
             "https://integrate.api.nvidia.com/v1/chat/completions"
@@ -90,16 +96,20 @@ class NvidiaChatClient:
         self.max_retries = llm_cfg.get("max_retries", 2)
         self.backoff_seconds = llm_cfg.get("backoff_seconds", 1.0)
         self.last_error = None
+        self.last_model_used = None
 
         # Some NVIDIA endpoints accept different model naming conventions. We'll try a few.
-        self.model_candidates = self._build_model_candidates(self.model)
+        self.model_candidates = self._build_model_candidates(self.model, self.fallback_models)
 
     @staticmethod
-    def _build_model_candidates(raw_model):
+    def _build_model_candidates(raw_model, fallback_models=None):
         raw = (raw_model or "").strip()
         candidates = []
         if raw:
             candidates.append(raw)
+        for fb in fallback_models or []:
+            if fb:
+                candidates.append(fb)
 
         # stockmark-2-100b-instruct <-> stockmark/stockmark-2-100b-instruct
         if raw and "/" not in raw and raw.startswith("stockmark-"):
@@ -142,6 +152,7 @@ class NvidiaChatClient:
     def chat(self, messages):
         if not self.is_ready():
             return None
+        self.last_model_used = None
 
         headers = {
             "Authorization": f"Bearer {self.api_key}",
@@ -168,7 +179,7 @@ class NvidiaChatClient:
                         headers=headers,
                         timeout=self.timeout_seconds
                     )
-                    if response.status_code in (401, 403, 404):
+                    if response.status_code in (400, 401, 403, 404, 422):
                         self.last_error = f"HTTP {response.status_code} for model={model}: {response.text[:500]}"
                         logger.warning("LLM rejected request for model=%s (HTTP %s). Trying next model.", model, response.status_code)
                         continue
@@ -179,8 +190,14 @@ class NvidiaChatClient:
 
                     response.raise_for_status()
                     data = response.json()
+                    content = self._extract_content(data)
+                    if not content:
+                        self.last_error = f"Empty response content for model={model}"
+                        logger.warning("LLM returned empty content for model=%s. Trying next model.", model)
+                        continue
                     self.last_error = None
-                    return self._extract_content(data)
+                    self.last_model_used = model
+                    return content
                 except requests.exceptions.RequestException as exc:
                     last_exc = exc
                     # If we got a structured response, include it.

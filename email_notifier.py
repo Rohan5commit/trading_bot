@@ -171,17 +171,22 @@ class EmailNotifier:
                 ok = bool(ai_trading_llm_status.get("ok"))
                 err = ai_trading_llm_status.get("error")
                 model = ai_trading_llm_status.get("model")
+                model_used = ai_trading_llm_status.get("model_used")
                 seen = ai_trading_llm_status.get("candidates_seen") or ai_trading_llm_status.get("candidates_built")
                 blocked = ai_trading_llm_status.get("blocked_by_core")
                 disallow = ai_trading_llm_status.get("disallow_core_overlap")
                 suffix = f" (model={model})" if model else ""
                 body_lines.append(f"AI Trading LLM: {'OK' if ok else 'ERROR'}{suffix}")
+                if model_used:
+                    body_lines.append(f"AI Model Used: {model_used}")
                 if seen is not None:
                     body_lines.append(f"AI Candidates: {seen}")
                 if disallow is not None:
                     body_lines.append(f"AI Core-Overlap Block: {'ON' if disallow else 'OFF'}")
                 if blocked is not None:
                     body_lines.append(f"AI Core-Overlap Blocked Symbols: {blocked}")
+                if ai_trading_llm_status.get("entries_blocked_due_to_llm_error"):
+                    body_lines.append("AI Entries: BLOCKED (LLM unavailable/error)")
                 if (not ok) and err:
                     body_lines.append(f"AI LLM Error: {err}")
             

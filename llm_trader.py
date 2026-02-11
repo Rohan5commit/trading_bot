@@ -19,12 +19,14 @@ def propose_trades_with_llm(config, candidates, max_positions=10, allow_shorts=T
     llm_cfg = dict(llm_cfg)
     llm_cfg["model"] = ai_cfg.get("llm_model", llm_cfg.get("model"))
     llm_cfg["api_key_env"] = ai_cfg.get("api_key_env", llm_cfg.get("api_key_env"))
+    llm_cfg["fallback_models"] = ai_cfg.get("llm_fallback_models", llm_cfg.get("fallback_models", []))
     client = NvidiaChatClient(llm_cfg)
     status = {
         "enabled": bool(llm_cfg.get("enabled", False)),
         "ok": False,
         "error": None,
         "model": llm_cfg.get("model"),
+        "fallback_models": llm_cfg.get("fallback_models", []),
         "api_key_env": llm_cfg.get("api_key_env"),
     }
     if not client.is_ready():
@@ -73,7 +75,9 @@ def propose_trades_with_llm(config, candidates, max_positions=10, allow_shorts=T
     response_text = client.chat(messages)
     if response_text is None:
         status["error"] = getattr(client, "last_error", None) or "LLM call failed."
+        status["model_used"] = getattr(client, "last_model_used", None)
         return [], status
+    status["model_used"] = getattr(client, "last_model_used", None) or status.get("model")
     parsed = _extract_json(response_text)
     if not isinstance(parsed, dict):
         status["error"] = "LLM response missing JSON."

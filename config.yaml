@@ -111,6 +111,9 @@ ai_trading:
   min_total_weight: 0.90
   # Use a separate reasoning model/key for trade selection.
   llm_model: "nvidia/llama-3.1-nemotron-ultra-253b-v1"
+  llm_fallback_models:
+    - "meta/llama-3.1-70b-instruct"
+    - "stockmark/stockmark-2-100b-instruct"
   api_key_env: "NVIDIA_REASONING_API_KEY"
 
 
