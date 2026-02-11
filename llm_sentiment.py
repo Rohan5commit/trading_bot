@@ -186,7 +186,7 @@ class NvidiaChatClient:
                     if response.status_code == 429:
                         self.last_error = f"HTTP 429 rate limit for model={model}: {response.text[:500]}"
                         logger.warning("LLM rate limited (model=%s).", model)
-                        break
+                        continue
 
                     response.raise_for_status()
                     data = response.json()
@@ -211,7 +211,7 @@ class NvidiaChatClient:
                     except Exception:
                         self.last_error = str(exc)
                     logger.warning("LLM request failed (attempt %d/%d): %s", attempt + 1, self.max_retries + 1, self.last_error)
-                    break
+                    continue
 
             if attempt < self.max_retries:
                 time.sleep(self.backoff_seconds * (attempt + 1))
