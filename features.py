@@ -30,11 +30,22 @@ class FeatureEngineer:
 
     def load_data(self, symbol):
         conn = sqlite3.connect(self.db_path)
-        prices = pd.read_sql(f"SELECT * FROM prices WHERE symbol='{symbol}' ORDER BY date", conn)
-        news = pd.read_sql(f"SELECT * FROM news WHERE symbol='{symbol}' ORDER BY datetime", conn)
+        try:
+            prices = pd.read_sql(f"SELECT * FROM prices WHERE symbol='{symbol}' ORDER BY date", conn)
+        except (sqlite3.OperationalError, pd.io.sql.DatabaseError) as exc:
+            logger.warning(f"Could not load prices for {symbol}: {exc}")
+            prices = pd.DataFrame()
+
+        try:
+            news = pd.read_sql(f"SELECT * FROM news WHERE symbol='{symbol}' ORDER BY datetime", conn)
+        except (sqlite3.OperationalError, pd.io.sql.DatabaseError) as exc:
+            logger.warning(f"Could not load news for {symbol}: {exc}")
+            news = pd.DataFrame()
+            
         conn.close()
         
-        prices['date'] = pd.to_datetime(prices['date'])
+        if not prices.empty:
+            prices['date'] = pd.to_datetime(prices['date'])
         if not news.empty:
             news['datetime'] = pd.to_datetime(news['datetime'])
             

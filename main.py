@@ -61,6 +61,20 @@ class DailyBacktester:
         self.core_tracker = PositionTracker(self.config_path, table_name="positions")
         self.ai_tracker = PositionTracker(self.config_path, table_name="positions_ai")
         self.feature_engineer = FeatureEngineer(self.config_path)
+        self.init_all_tables()
+
+    def init_all_tables(self):
+        """Ensure all required database tables exist before any processing starts."""
+        from ingest_prices import PriceIngestor
+        from ingest_news import NewsIngestor
+        from positions import PositionTracker
+
+        # Initialize core tables
+        PriceIngestor(self.config_path).init_db()
+        NewsIngestor(self.config_path).init_db()
+        PositionTracker(self.config_path, table_name="positions")
+        PositionTracker(self.config_path, table_name="positions_ai")
+        logger.info("All database tables initialized successfully.")
 
     def get_prediction_for_date(self, symbol, signal_date):
         """Get prediction using features as of signal_date (T-1)."""
