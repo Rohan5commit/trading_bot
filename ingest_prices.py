@@ -241,6 +241,7 @@ class PriceIngestor:
                 continue
             if payload.get("status") == "error":
                 # Common rate-limit message also comes through here.
+                logger.warning(f"TwelveData error for {symbol}: {payload.get('message', 'Unknown error')}")
                 continue
             values = payload.get("values") or []
             if not values:

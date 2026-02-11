@@ -1075,9 +1075,10 @@ def run_daily_job(config_path=None):
                         df_prices.columns.tolist(),
                         df_prices.values.tolist()
                     )
+                    pipeline_stats['tickers_processed'] += 1
                 finally:
                     conn.close()
-
+            
             time.sleep(sleep_s)
         except Exception as exc:
             pipeline_stats['tickers_failed'] += 1
