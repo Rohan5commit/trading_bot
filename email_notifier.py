@@ -84,6 +84,13 @@ class EmailNotifier:
         available_cash = report_data.get("available_cash")
         invested_notional_str = f"${float(invested_notional):,.2f}" if isinstance(invested_notional, (int, float)) else "N/A"
         available_cash_str = f"${float(available_cash):,.2f}" if isinstance(available_cash, (int, float)) else "N/A"
+        stocks_scanned_today = None
+        if isinstance(pipeline_stats, dict):
+            # Prefer actual processed count; fall back to total universe size if needed.
+            stocks_scanned_today = pipeline_stats.get("tickers_processed")
+            if stocks_scanned_today is None:
+                stocks_scanned_today = pipeline_stats.get("tickers_total")
+        stocks_scanned_str = str(stocks_scanned_today) if stocks_scanned_today is not None else "N/A"
 
         # Build body without leading indentation (some email clients render leading spaces poorly).
         body_lines = [
@@ -95,11 +102,13 @@ class EmailNotifier:
 
         if strategies:
             body_lines.append("This report includes multiple strategy accounts. See STRATEGY DETAILS below.")
+            body_lines.append(f"Stocks Scanned Today: {stocks_scanned_str}")
             body_lines.append("")
         else:
             body_lines.extend([
                 "PORTFOLIO SUMMARY",
                 "-----------------",
+                f"Stocks Scanned Today: {stocks_scanned_str}",
                 f"Open Positions: {report_data.get('open_positions', 0)}",
                 f"Positions Closed Today: {report_data.get('positions_closed_at_tp', 0)}",
                 f"New Positions Opened Today: {report_data.get('new_positions_opened', 0)}",
