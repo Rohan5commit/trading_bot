@@ -28,27 +28,28 @@ def _extract_json(text):
     if not text:
         return None
     cleaned = _strip_code_fences(text)
+    
+    # 1. Try direct parse
     try:
         return json.loads(cleaned)
     except json.JSONDecodeError:
         pass
 
-    brace_start = cleaned.find("{")
-    brace_end = cleaned.rfind("}")
-    if brace_start != -1 and brace_end != -1 and brace_end > brace_start:
-        try:
-            return json.loads(cleaned[brace_start:brace_end + 1])
-        except json.JSONDecodeError:
-            return None
+    # 2. Try finding the outermost braces/brackets
+    for start_char, end_char in [("{", "}"), ("[", "]")]:
+        start = cleaned.find(start_char)
+        while start != -1:
+            end = cleaned.rfind(end_char)
+            while end != -1 and end > start:
+                candidate = cleaned[start:end + 1]
+                try:
+                    return json.loads(candidate)
+                except json.JSONDecodeError:
+                    # Shrink from the right and try again
+                    end = cleaned.rfind(end_char, start, end)
+            # Try next start character
+            start = cleaned.find(start_char, start + 1)
 
-    list_start = cleaned.find("[")
-    list_end = cleaned.rfind("]")
-    if list_start != -1 and list_end != -1 and list_end > list_start:
-        try:
-            return json.loads(cleaned[list_start:list_end + 1])
-        except json.JSONDecodeError:
-            pass
-            
     logger.warning("Failed to extract JSON from LLM response. Raw text snippet: %s", (text[:500] + "...") if len(text) > 500 else text)
     return None
 
