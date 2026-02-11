@@ -1077,9 +1077,10 @@ def run_daily_job(config_path=None):
                         df_prices.columns.tolist(),
                         df_prices.values.tolist()
                     )
-                    pipeline_stats['tickers_processed'] += 1
                 finally:
                     conn.close()
+            
+            pipeline_stats['tickers_processed'] += 1
             
             # Train if model is missing or stale
             model_manager.train_ols(t)
