@@ -65,7 +65,7 @@ llm:
   backoff_seconds: 1.0
   temperature: 0.1
   top_p: 0.9
-  max_tokens: 512
+  max_tokens: 4096
   news_sentiment:
     enabled: true
     batch_size: 8
