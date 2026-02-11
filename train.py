@@ -28,6 +28,7 @@ class ModelManager:
         os.makedirs(self.feature_store_dir, exist_ok=True)
         storage_cfg = (self.config.get("storage") or {}) if isinstance(self.config, dict) else {}
         self.store_feature_files = bool(storage_cfg.get("store_feature_files", True))
+        self._feature_engineer = None
         
         # Load registry
         if os.path.exists(self.registry_path):
@@ -35,6 +36,12 @@ class ModelManager:
                 self.registry = json.load(f)
         else:
             self.registry = {}
+
+    def _get_feature_engineer(self):
+        if self._feature_engineer is None:
+            from features import FeatureEngineer
+            self._feature_engineer = FeatureEngineer(self.config_path)
+        return self._feature_engineer
 
     def _min_retrain_timedelta(self):
         cfg = self.config.get("ml", {}) if isinstance(self.config, dict) else {}
@@ -106,8 +113,7 @@ class ModelManager:
         else:
             # Generate features from SQLite on-the-fly to minimize disk usage.
             try:
-                from features import FeatureEngineer
-                fe = FeatureEngineer(self.config_path)
+                fe = self._get_feature_engineer()
                 df = fe.generate(symbol)
             except Exception as exc:
                 logger.error("Failed to generate features for %s: %s", symbol, exc)

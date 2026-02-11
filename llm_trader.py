@@ -38,6 +38,8 @@ def propose_trades_with_llm(config, candidates, max_positions=10, allow_shorts=T
 
     allow_shorts = bool(allow_shorts)
     max_shorts = int(max_shorts or 0)
+    min_total_weight = float(ai_cfg.get("min_total_weight", 0.90) or 0.90)
+    min_total_weight = max(0.0, min(1.0, min_total_weight))
 
     # Keep prompt compact but "strategy-free": include the provided candidates as-is (bounded).
     prompt_limit = int(ai_cfg.get("prompt_candidates_limit", 80) or 80)
@@ -120,6 +122,16 @@ def propose_trades_with_llm(config, candidates, max_positions=10, allow_shorts=T
         scale = 1.0 / total_weight
         for t in cleaned:
             t["weight"] = t["weight"] * scale
+        total_weight = 1.0
+
+    # Encourage fuller capital deployment from AI when it proposes low aggregate weights.
+    if 0.0 < total_weight < min_total_weight:
+        scale = min_total_weight / total_weight
+        for t in cleaned:
+            t["weight"] = t["weight"] * scale
+        total_weight = min_total_weight
 
     status["ok"] = True
+    status["total_weight"] = total_weight
+    status["min_total_weight"] = min_total_weight
     return cleaned, status

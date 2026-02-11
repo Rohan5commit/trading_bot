@@ -1,0 +1,94 @@
+{
+  "positions": [
+    {
+      "symbol": "BR",
+      "side": "LONG",
+      "entry_date": "2026-02-09",
+      "entry_price": 181.35001,
+      "quantity": 103.23007049266243,
+      "target_price": 186.7905103
+    },
+    {
+      "symbol": "ABT",
+      "side": "LONG",
+      "entry_date": "2026-02-09",
+      "entry_price": 110.23,
+      "quantity": 138.51787232553355,
+      "target_price": 113.5369
+    },
+    {
+      "symbol": "NVDA",
+      "side": "SHORT",
+      "entry_date": "2026-02-09",
+      "entry_price": 184.25999,
+      "quantity": 210.3081270463222,
+      "target_price": 178.73219029999998
+    },
+    {
+      "symbol": "KLAC",
+      "side": "SHORT",
+      "entry_date": "2026-02-09",
+      "entry_price": 1440.0,
+      "quantity": 11.107369237787218,
+      "target_price": 1396.8
+    },
+    {
+      "symbol": "GLW",
+      "side": "SHORT",
+      "entry_date": "2026-02-09",
+      "entry_price": 124.0,
+      "quantity": 117.40948900396887,
+      "target_price": 120.28
+    }
+  ],
+  "positions_ai": [
+    {
+      "symbol": "T",
+      "side": "LONG",
+      "entry_date": "2026-02-09",
+      "entry_price": 27.1,
+      "quantity": 738.0073800738007,
+      "target_price": 27.913000000000004
+    },
+    {
+      "symbol": "IEX",
+      "side": "LONG",
+      "entry_date": "2026-02-09",
+      "entry_price": 211.96001,
+      "quantity": 94.35742147775893,
+      "target_price": 218.31881030000002
+    },
+    {
+      "symbol": "REG",
+      "side": "LONG",
+      "entry_date": "2026-02-09",
+      "entry_price": 75.15,
+      "quantity": 266.1343978709248,
+      "target_price": 77.40450000000001
+    },
+    {
+      "symbol": "LUV",
+      "side": "LONG",
+      "entry_date": "2026-02-09",
+      "entry_price": 53.82,
+      "quantity": 371.6090672612412,
+      "target_price": 55.4346
+    },
+    {
+      "symbol": "AMZN",
+      "side": "SHORT",
+      "entry_date": "2026-02-09",
+      "entry_price": 208.97,
+      "quantity": 47.8537589127626,
+      "target_price": 202.7009
+    },
+    {
+      "symbol": "CTSH",
+      "side": "SHORT",
+      "entry_date": "2026-02-09",
+      "entry_price": 75.69,
+      "quantity": 132.1178491214163,
+      "target_price": 73.41929999999999
+    }
+  ]
+}

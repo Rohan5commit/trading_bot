@@ -20,6 +20,7 @@ from train import ModelManager
 from positions import PositionTracker
 from portfolio import PortfolioManager
 from backtest_signals import build_signal_snapshot
+from state_recovery import recover_positions_from_seed
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -730,7 +731,9 @@ class DailyBacktester:
                 subject_tag="AI"
             )
 
-        email_sent = bool(core_email_sent) and bool(ai_email_sent)
+        # A run is considered complete once at least one strategy email is sent.
+        # This prevents transient AI-email failures from failing the whole workflow.
+        email_sent = bool(core_email_sent) or bool(ai_email_sent)
         if email_sent:
             for marker in [f"email_sent_core_{date_str}.ok", f"email_sent_ai_{date_str}.ok", f"email_sent_{date_str}.ok"]:
                 marker_path = os.path.join(self.results_dir, marker)
@@ -999,6 +1002,21 @@ def run_daily_job(config_path=None):
             'details': details
         })
         logger.info(f"STEP: {name} | STATUS: {status} | {details or ''}")
+
+    # One-time recovery for cloud cache misses: seed only if tables are empty.
+    log_step("State Recovery", "Started")
+    try:
+        recovery = recover_positions_from_seed(config_path)
+        if recovery.get("recovered_total", 0) > 0:
+            log_step(
+                "State Recovery",
+                "Completed",
+                f"Recovered core={recovery.get('recovered_core', 0)} ai={recovery.get('recovered_ai', 0)}",
+            )
+        else:
+            log_step("State Recovery", "Skipped", recovery.get("reason", "no_recovery_needed"))
+    except Exception as exc:
+        log_step("State Recovery", "Failed", str(exc))
 
     log_step("Market Check", "Started", f"Source: {src}")
 

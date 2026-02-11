@@ -26,20 +26,58 @@ class FeatureEngineer:
         self.feature_store_dir = os.path.join(self.base_dir, 'feature_store')
         storage_cfg = (self.config.get("storage") or {}) if isinstance(self.config, dict) else {}
         self.store_feature_files = bool(storage_cfg.get("store_feature_files", True))
+        self._table_exists_cache = {}
+        self._warned_missing_tables = set()
         os.makedirs(self.feature_store_dir, exist_ok=True)
+
+    def _table_exists(self, conn, table_name):
+        if table_name in self._table_exists_cache:
+            return self._table_exists_cache[table_name]
+        try:
+            row = conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+                (table_name,),
+            ).fetchone()
+            exists = bool(row)
+        except Exception:
+            exists = False
+        self._table_exists_cache[table_name] = exists
+        return exists
+
+    def _warn_missing_table_once(self, table_name):
+        if table_name in self._warned_missing_tables:
+            return
+        logger.warning("Table '%s' not found in %s; using defaults.", table_name, self.db_path)
+        self._warned_missing_tables.add(table_name)
 
     def load_data(self, symbol):
         conn = sqlite3.connect(self.db_path)
-        try:
-            prices = pd.read_sql(f"SELECT * FROM prices WHERE symbol='{symbol}' ORDER BY date", conn)
-        except (sqlite3.OperationalError, pd.io.sql.DatabaseError) as exc:
-            logger.warning(f"Could not load prices for {symbol}: {exc}")
+        if self._table_exists(conn, "prices"):
+            try:
+                prices = pd.read_sql(
+                    "SELECT * FROM prices WHERE symbol=? ORDER BY date",
+                    conn,
+                    params=(symbol,),
+                )
+            except Exception as exc:
+                logger.warning(f"Could not load prices for {symbol}: {exc}")
+                prices = pd.DataFrame()
+        else:
+            self._warn_missing_table_once("prices")
             prices = pd.DataFrame()
 
-        try:
-            news = pd.read_sql(f"SELECT * FROM news WHERE symbol='{symbol}' ORDER BY datetime", conn)
-        except (sqlite3.OperationalError, pd.io.sql.DatabaseError) as exc:
-            logger.warning(f"Could not load news for {symbol}: {exc}")
+        if self._table_exists(conn, "news"):
+            try:
+                news = pd.read_sql(
+                    "SELECT * FROM news WHERE symbol=? ORDER BY datetime",
+                    conn,
+                    params=(symbol,),
+                )
+            except Exception as exc:
+                logger.warning(f"Could not load news for {symbol}: {exc}")
+                news = pd.DataFrame()
+        else:
+            self._warn_missing_table_once("news")
             news = pd.DataFrame()
             
         conn.close()
@@ -47,7 +85,11 @@ class FeatureEngineer:
         if not prices.empty:
             prices['date'] = pd.to_datetime(prices['date'])
         if not news.empty:
-            news['datetime'] = pd.to_datetime(news['datetime'])
+            if 'datetime' in news.columns:
+                news['datetime'] = pd.to_datetime(news['datetime'], errors='coerce')
+                news = news.dropna(subset=['datetime'])
+            else:
+                news = pd.DataFrame()
             
         return prices, news
 
@@ -82,17 +124,33 @@ class FeatureEngineer:
 
     def build_news_features(self, prices_df, news_df):
         # Aggregate news sentiment into rolling windows (e.g., 7 days)
+        if news_df.empty or 'datetime' not in news_df.columns:
+            prices_df['news_count_7d'] = 0
+            prices_df['news_sentiment_7d'] = 0.0
+            return prices_df
+
+        news_df = news_df.copy()
+        news_df['date'] = news_df['datetime'].dt.normalize()
+        news_df = news_df.dropna(subset=['date'])
         if news_df.empty:
             prices_df['news_count_7d'] = 0
             prices_df['news_sentiment_7d'] = 0.0
             return prices_df
-        
-        news_df['date'] = news_df['datetime'].dt.normalize()
-        # Daily aggregate
-        daily_news = news_df.groupby('date').agg(
-            news_count=('url', 'count'),
-            news_sentiment=('sentiment_score', 'mean')
-        )
+
+        # Robust to schema differences in CI/local DBs.
+        daily_news = news_df.groupby('date').size().rename('news_count').to_frame()
+        if 'sentiment_score' in news_df.columns:
+            sentiment_series = pd.to_numeric(news_df['sentiment_score'], errors='coerce')
+            daily_sentiment = (
+                pd.DataFrame({'date': news_df['date'], 'sentiment_score': sentiment_series})
+                .dropna(subset=['sentiment_score'])
+                .groupby('date')['sentiment_score']
+                .mean()
+            )
+            daily_news['news_sentiment'] = daily_sentiment
+        else:
+            daily_news['news_sentiment'] = 0.0
+        daily_news['news_sentiment'] = daily_news['news_sentiment'].fillna(0.0)
         
         # Rolling sum/mean
         daily_news['news_count_7d'] = daily_news['news_count'].rolling(7).sum()

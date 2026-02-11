@@ -107,6 +107,8 @@ ai_trading:
   # AI selection uses a compact market snapshot per symbol (no core-model ranking).
   price_lookback_days: 30
   prompt_candidates_limit: 80
+  # Force AI weights to deploy most available cash each run.
+  min_total_weight: 0.90
   # Use a separate reasoning model/key for trade selection.
   llm_model: "nvidia/llama-3.1-nemotron-ultra-253b-v1"
   api_key_env: "NVIDIA_REASONING_API_KEY"

@@ -29,8 +29,8 @@ jobs:
         run: |
           pip install -r requirements.txt
 
-      - name: Cache Data and Models
-        uses: actions/cache@v4
+      - name: Restore Data and Models Cache
+        uses: actions/cache/restore@v4
         with:
           path: |
             data/
@@ -66,3 +66,13 @@ jobs:
             results/*.csv
             *.log
           retention-days: 7
+
+      - name: Save Data and Models Cache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            data/
+            models/
+            model_registry.json
+          key: ${{ runner.os }}-trading-bot-${{ github.run_id }}
