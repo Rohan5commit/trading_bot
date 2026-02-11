@@ -1018,6 +1018,8 @@ def run_daily_job(config_path=None):
             )
             return True
 
+    model_manager = ModelManager(config_path)
+
     # Update prices for all tickers (incremental) without downloading full history repeatedly.
     log_step("Price Ingestion", "Started", f"Processing {len(tickers)} symbols...")
     for t in tickers:
@@ -1079,6 +1081,9 @@ def run_daily_job(config_path=None):
                 finally:
                     conn.close()
             
+            # Train if model is missing or stale
+            model_manager.train_ols(t)
+
             time.sleep(sleep_s)
         except Exception as exc:
             pipeline_stats['tickers_failed'] += 1

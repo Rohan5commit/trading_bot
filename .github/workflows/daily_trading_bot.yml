@@ -29,6 +29,17 @@ jobs:
         run: |
           pip install -r requirements.txt
 
+      - name: Cache Data and Models
+        uses: actions/cache@v4
+        with:
+          path: |
+            data/
+            models/
+            model_registry.json
+          key: ${{ runner.os }}-trading-bot-${{ github.run_id }}
+          restore-keys: |
+            ${{ runner.os }}-trading-bot-
+
       - name: Run Trading Bot
         env:
           SMTP_SERVER: ${{ secrets.SMTP_SERVER }}

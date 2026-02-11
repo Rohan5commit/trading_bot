@@ -1,26 +1,14 @@
-# Python
-__pycache__/
-*.pyc
-
-# Environment and Secrets
-.env
-.env.*
-
-# Data and Models
-data/*.db
-data/*.csv
-models/*.npy
-feature_store/
-
-# Logs and Results
-*.log
+data/
+models/
 results/
-logs/
-
-# IDE
-.vscode/
-.idea/
-.DS_Store
-
-# Mac
-.DS_Store
+*.log
+*.ok
+latest_run_log.txt
+latest_exec_log.txt
+run_log.txt
+exec_log.txt
+.env
+__pycache__/
+*.npy
+model_registry.json
+feature_store/
