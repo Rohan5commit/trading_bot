@@ -175,10 +175,17 @@ class EmailNotifier:
                 seen = ai_trading_llm_status.get("candidates_seen") or ai_trading_llm_status.get("candidates_built")
                 blocked = ai_trading_llm_status.get("blocked_by_core")
                 disallow = ai_trading_llm_status.get("disallow_core_overlap")
+                skipped_reason = ai_trading_llm_status.get("skipped_reason")
                 suffix = f" (model={model})" if model else ""
                 body_lines.append(f"AI Trading LLM: {'OK' if ok else 'ERROR'}{suffix}")
                 if model_used:
                     body_lines.append(f"AI Model Used: {model_used}")
+                if skipped_reason == "no_capacity":
+                    cap = ai_trading_llm_status.get("available_capital")
+                    slots = ai_trading_llm_status.get("available_slots")
+                    cap_txt = f"${float(cap):,.2f}" if isinstance(cap, (int, float)) else "N/A"
+                    slots_txt = str(slots) if slots is not None else "N/A"
+                    body_lines.append(f"AI LLM Call: SKIPPED (no available capacity; cash={cap_txt}, slots={slots_txt})")
                 if seen is not None:
                     body_lines.append(f"AI Candidates: {seen}")
                 if disallow is not None:

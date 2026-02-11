@@ -531,6 +531,7 @@ class DailyBacktester:
             ai_max_positions = int(ai_cfg.get("max_positions", 10))
             ai_allow_shorts = bool(ai_cfg.get("allow_shorts", True))
             ai_max_shorts = int(ai_cfg.get("max_shorts", 5))
+            ai_available_slots = max(0, ai_max_positions - len(ai_open_symbols))
 
             # AI strategy is "pure AI decision": do NOT use the core model rankings.
             # Provide the LLM a compact per-symbol market snapshot and let it decide.
@@ -600,22 +601,38 @@ class DailyBacktester:
             finally:
                 conn_ai.close()
 
-            ai_trades, ai_llm_status = propose_trades_with_llm(
-                self.config,
-                cand,
-                max_positions=ai_max_positions,
-                allow_shorts=ai_allow_shorts,
-                max_shorts=ai_max_shorts,
-            )
-            if isinstance(ai_llm_status, dict):
-                ai_llm_status["disallow_core_overlap"] = disallow_overlap
-                ai_llm_status["blocked_by_core"] = blocked_by_core
-                ai_llm_status["candidates_built"] = len(cand)
-            # Strict gate: no LLM success -> no new AI entries.
-            if not (isinstance(ai_llm_status, dict) and ai_llm_status.get("ok")):
+            if ai_available_capital <= 0.0 or ai_available_slots <= 0:
                 ai_trades = []
+                ai_llm_status = {
+                    "enabled": True,
+                    "ok": True,
+                    "skipped_reason": "no_capacity",
+                    "error": None,
+                    "model": ai_cfg.get("llm_model"),
+                    "model_used": None,
+                    "disallow_core_overlap": disallow_overlap,
+                    "blocked_by_core": blocked_by_core,
+                    "candidates_built": len(cand),
+                    "available_capital": float(ai_available_capital),
+                    "available_slots": int(ai_available_slots),
+                }
+            else:
+                ai_trades, ai_llm_status = propose_trades_with_llm(
+                    self.config,
+                    cand,
+                    max_positions=ai_available_slots,
+                    allow_shorts=ai_allow_shorts,
+                    max_shorts=ai_max_shorts,
+                )
                 if isinstance(ai_llm_status, dict):
-                    ai_llm_status["entries_blocked_due_to_llm_error"] = True
+                    ai_llm_status["disallow_core_overlap"] = disallow_overlap
+                    ai_llm_status["blocked_by_core"] = blocked_by_core
+                    ai_llm_status["candidates_built"] = len(cand)
+                # Strict gate: no LLM success -> no new AI entries.
+                if not (isinstance(ai_llm_status, dict) and ai_llm_status.get("ok")):
+                    ai_trades = []
+                    if isinstance(ai_llm_status, dict):
+                        ai_llm_status["entries_blocked_due_to_llm_error"] = True
 
             if ai_trades and ai_available_capital > 0:
                 conn_ai = sqlite3.connect(self.db_path)
