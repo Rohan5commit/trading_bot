@@ -14,7 +14,11 @@ This is a Python-based trading bot designed to run daily, ingest market data, ge
    ```bash
    pip install -r requirements.txt
    ```
-3. Create a `.env` file with your API keys (see `env.example` if available, or Configuration section below).
+3. Create a `.env` file with your API keys:
+   ```bash
+   cp .env.example .env
+   ```
+4. Open `.env` and paste your keys (do not commit `.env`).
 
 ## Usage
 
@@ -29,6 +33,50 @@ To run the full pipeline (ingest, train, backtest):
 ```bash
 python main.py full
 ```
+
+## API Keys (Step-by-Step)
+
+This repo is set up so secrets are **not** stored in git. A fresh `git clone` will **not** include your API keys.
+
+### A) Run Locally (Recommended)
+1. Clone:
+   ```bash
+   git clone https://github.com/Rohan5commit/trading_bot.git
+   cd trading_bot
+   ```
+2. Create `.env`:
+   ```bash
+   cp .env.example .env
+   ```
+3. Open `.env` and paste your keys:
+   - In VS Code: `code .` then click `.env` and paste values.
+   - In Terminal: `nano .env` then paste values and save.
+4. Required env vars for the current setup:
+   - `NVIDIA_API_KEY` (news/LLM sentiment)
+   - `NVIDIA_REASONING_API_KEY` (AI strategy trade selection)
+   - Email: `SMTP_SERVER`, `SMTP_PORT`, `SENDER_EMAIL`, `SENDER_PASSWORD`, `RECIPIENT_EMAIL`
+   - Optional (faster S&P500 ingestion): `TWELVEDATA_API_KEYS` (comma-separated)
+5. Run:
+   ```bash
+   python3 main.py daily_job
+   ```
+
+### B) Run In GitHub Actions (Cloud)
+1. Go to your repo on GitHub.
+2. `Settings` -> `Secrets and variables` -> `Actions`.
+3. Click `New repository secret`.
+4. Add secrets (names must match exactly):
+   - `NVIDIA_API_KEY`
+   - `NVIDIA_API_KEY_ID` (optional)
+   - `NVIDIA_REASONING_API_KEY`
+   - `NVIDIA_REASONING_API_KEY_ID` (optional)
+   - `TWELVEDATA_API_KEYS` (optional, comma-separated)
+   - Email secrets as used by your deployment (see your workflow / `send_email_report.py` configuration).
+
+## State Persistence (Important)
+Positions and account state live in SQLite at `data/trading_bot.db`.
+- GitHub Actions keeps this via cache for cloud runs.
+- A new local clone starts "fresh" unless you restore a saved copy of `data/trading_bot.db`.
 
 ## GitHub Actions Deployment
 

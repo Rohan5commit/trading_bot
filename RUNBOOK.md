@@ -4,13 +4,20 @@
 - **Python 3.9+**
 - **Dependencies**: `pandas`, `requests`, `pyyaml`, `yfinance`, `python-dotenv`
 - **Email Configuration**: Gmail App Password required in `.env`.
-- **LLM (Optional)**: NVIDIA API key in `.env` for LLM sentiment scoring.
+- **LLM (Optional)**: NVIDIA API key(s) in `.env` for LLM sentiment scoring and AI trade selection.
 
 ## 2. Setup
 1. Move the `trading_bot` folder to your desired location (e.g., home folder).
 2. `pip install -r requirements.txt`.
 3. Fill in your email credentials in `.env`.
-4. (Optional) Set `NVIDIA_API_KEY` in `.env` and enable `news.enabled` in `config.yaml` to turn on LLM sentiment.
+4. Create `.env` from the template and paste your keys:
+   ```bash
+   cp .env.example .env
+   ```
+5. (Optional) NVIDIA keys:
+   - `NVIDIA_API_KEY` enables News/LLM sentiment if `news.enabled: true` in `config.yaml`.
+   - `NVIDIA_REASONING_API_KEY` enables the AI strategy trade selection (`ai_trading.enabled: true`).
+   - Do not commit `.env` (it is gitignored).
 
 ## 3. Daily Workflow
 The bot is fully automated:
@@ -37,3 +44,6 @@ Note: PineScript translation is a placeholder; set `strategy.type: pine` with a 
 ## 5. Troubleshooting
 - **No Email**: Verify `SENDER_EMAIL` and `SENDER_PASSWORD` in `.env`.
 - **No Data**: Ensure internet connection is active (Wi-Fi check).
+- **AI Strategy Not Trading**:
+  - If the AI LLM call fails, the run continues but new AI entries are blocked (to avoid hallucinated trades).
+  - Check that `NVIDIA_REASONING_API_KEY` is set and the configured model is available.
