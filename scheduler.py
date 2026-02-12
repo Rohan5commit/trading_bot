@@ -28,8 +28,10 @@ END_TIME = dtime(23, 59)   # Almost Midnight
 CHECK_INTERVAL = 300       # 5 minutes
 SCRIPT_TO_RUN = os.path.join(BASE_DIR, "main.py")
 RESULTS_DIR = os.path.join(BASE_DIR, "results")
-STATE_FILE = os.path.join(BASE_DIR, "scheduler_state.json")
-LOCK_FILE = os.path.join(BASE_DIR, "scheduler.lock")
+DATA_DIR = os.path.join(BASE_DIR, "data")
+# Keep runtime state/locks in data/ so they don't get committed and can be cached in CI.
+STATE_FILE = os.path.join(DATA_DIR, "scheduler_state.json")
+LOCK_FILE = os.path.join(DATA_DIR, "scheduler.lock")
 CONFIG_FILE = os.path.join(BASE_DIR, "config.yaml")
 
 # Configure logging
@@ -53,6 +55,23 @@ def is_connected():
         return False
 
 def _load_state():
+    # Ensure data dir exists (local scheduler use).
+    try:
+        os.makedirs(DATA_DIR, exist_ok=True)
+    except Exception:
+        pass
+
+    # Migration: older versions stored state in repo root. Copy once.
+    legacy_state = os.path.join(BASE_DIR, "scheduler_state.json")
+    if (not os.path.exists(STATE_FILE)) and os.path.exists(legacy_state):
+        try:
+            with open(legacy_state, "r") as src:
+                payload = src.read()
+            with open(STATE_FILE, "w") as dst:
+                dst.write(payload)
+        except Exception:
+            pass
+
     if not os.path.exists(STATE_FILE):
         return {}
     try:
@@ -62,6 +81,10 @@ def _load_state():
         return {}
 
 def _save_state(state):
+    try:
+        os.makedirs(DATA_DIR, exist_ok=True)
+    except Exception:
+        pass
     try:
         with open(STATE_FILE, "w") as handle:
             json.dump(state, handle, indent=2)

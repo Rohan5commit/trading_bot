@@ -36,7 +36,9 @@ class MetaLearner:
             self.results_dir = os.path.join(base_dir, self.results_dir)
             
         self.feature_store_dir = os.path.join(base_dir, 'feature_store')
-        self.meta_state_file = os.path.join(base_dir, 'meta_learner_state.json')
+        # Keep runtime state in data/ so it's not committed and can be cached in CI.
+        data_dir = os.path.join(base_dir, "data")
+        self.meta_state_file = os.path.join(data_dir, 'meta_learner_state.json')
         db_rel = self.config.get('data', {}).get('cache_path', './data/trading_bot.db')
         self.db_path = db_rel if os.path.isabs(db_rel) else os.path.join(base_dir, db_rel)
 
@@ -62,6 +64,23 @@ class MetaLearner:
         return hashlib.sha1(payload.encode("utf-8")).hexdigest()
 
     def _load_state(self):
+        # Ensure data dir exists.
+        try:
+            os.makedirs(os.path.dirname(self.meta_state_file), exist_ok=True)
+        except Exception:
+            pass
+
+        # Migration: older versions stored state in repo root. Copy once.
+        legacy_state = os.path.join(os.path.dirname(os.path.abspath(__file__)), "meta_learner_state.json")
+        if (not os.path.exists(self.meta_state_file)) and os.path.exists(legacy_state):
+            try:
+                with open(legacy_state, "r") as src:
+                    payload = src.read()
+                with open(self.meta_state_file, "w") as dst:
+                    dst.write(payload)
+            except Exception:
+                pass
+
         if os.path.exists(self.meta_state_file):
             with open(self.meta_state_file, 'r') as f:
                 return json.load(f)
@@ -76,6 +95,10 @@ class MetaLearner:
 
     def _save_state(self):
         self.state['last_updated'] = datetime.now().isoformat()
+        try:
+            os.makedirs(os.path.dirname(self.meta_state_file), exist_ok=True)
+        except Exception:
+            pass
         with open(self.meta_state_file, 'w') as f:
             json.dump(self.state, f, indent=2)
         logger.info(f"Meta-learner state saved to {self.meta_state_file}")

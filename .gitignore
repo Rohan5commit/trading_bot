@@ -12,3 +12,9 @@ __pycache__/
 *.npy
 model_registry.json
 feature_store/
+
+# Runtime state files (generated during runs; don't commit)
+scheduler_state.json
+scheduler.lock
+meta_learner_state.json
+latest_failed_run_log.txt
