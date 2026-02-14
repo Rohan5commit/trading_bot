@@ -52,7 +52,9 @@ def propose_trades_with_llm(config, candidates, max_positions=10, allow_shorts=T
         "You are a trading decision engine. "
         "Return ONLY valid JSON (no markdown). "
         "Pick a diversified set of trades from the provided candidate list. "
-        "There is no fixed strategy; use your own judgement based on the provided fields."
+        "There is no fixed strategy; use your own judgement based on the provided fields. "
+        "If you want momentum/mean-reversion/volatility signals, derive them yourself from raw inputs "
+        "(e.g., the provided close series) rather than assuming any precomputed indicator is present."
     )
     rules = [
         f"- Choose up to {max_positions} total trades.",

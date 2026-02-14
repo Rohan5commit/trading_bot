@@ -544,24 +544,19 @@ class DailyBacktester:
                 if dfp.empty or len(dfp) < 2:
                     return None
                 dfp = dfp.sort_values("date").reset_index(drop=True)
-                closes = dfp["close"].astype(float)
-                rets = closes.pct_change().dropna()
-                def _ret(n):
-                    if len(closes) <= n:
-                        return None
-                    a = float(closes.iloc[-1])
-                    b = float(closes.iloc[-1 - n])
-                    return (a / b - 1.0) if b else None
-                vol20 = float(rets.tail(20).std()) if len(rets) >= 5 else None
+                closes = dfp["close"].astype(float).tolist()
+                # IMPORTANT:
+                # To keep the AI strategy "LLM-only", we do NOT compute or pass explicit momentum/return fields
+                # (e.g., 1d/5d/20d returns). We provide a small raw price/volume window and let the LLM decide
+                # what (if any) indicators to derive from it.
+                tail_n = min(10, len(closes))
+                closes_tail = [float(x) for x in closes[-tail_n:]]
                 v20 = float(dfp["volume"].astype(float).tail(20).mean()) if "volume" in dfp.columns else None
                 v1 = float(dfp["volume"].astype(float).iloc[-1]) if "volume" in dfp.columns else None
                 return {
                     "last_date": str(dfp["date"].iloc[-1]),
-                    "last_close": float(closes.iloc[-1]),
-                    "ret_1d": float(rets.iloc[-1]) if len(rets) >= 1 else None,
-                    "ret_5d": _ret(5),
-                    "ret_20d": _ret(20),
-                    "vol_20d": vol20,
+                    "last_close": float(closes_tail[-1]),
+                    "closes_tail": closes_tail,  # last ~10 closes (oldest->newest)
                     "volume_1d": v1,
                     "volume_20d_avg": v20,
                 }
