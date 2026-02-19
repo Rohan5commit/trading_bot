@@ -167,7 +167,9 @@ class EmailNotifier:
                         body_lines.append(f"LLM Error: {last_error}")
                 else:
                     body_lines.append(f"LLM Status: OK (attempts={attempts})")
-            if ai_trading_llm_status is not None:
+            # AI-trading diagnostics must appear only in the AI strategy email.
+            include_ai_pipeline = str(subject_tag or "").strip().upper() == "AI"
+            if include_ai_pipeline and ai_trading_llm_status is not None:
                 ok = bool(ai_trading_llm_status.get("ok"))
                 err = ai_trading_llm_status.get("error")
                 model = ai_trading_llm_status.get("model")

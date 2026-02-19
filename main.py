@@ -715,8 +715,15 @@ class DailyBacktester:
 
         if pipeline_stats is None:
             pipeline_stats = {}
-        if isinstance(pipeline_stats, dict):
-            pipeline_stats["ai_trading_llm_status"] = ai_llm_status
+
+        # Keep Core and AI reporting stats separate to avoid showing AI-trading fields
+        # in the Core email.
+        core_pipeline_stats = dict(pipeline_stats) if isinstance(pipeline_stats, dict) else pipeline_stats
+        ai_pipeline_stats = dict(pipeline_stats) if isinstance(pipeline_stats, dict) else pipeline_stats
+        if isinstance(core_pipeline_stats, dict):
+            core_pipeline_stats.pop("ai_trading_llm_status", None)
+        if isinstance(ai_pipeline_stats, dict):
+            ai_pipeline_stats["ai_trading_llm_status"] = ai_llm_status
 
         # Send TWO separate emails (Core + AI)
         from email_notifier import EmailNotifier
@@ -728,7 +735,7 @@ class DailyBacktester:
             new_positions=new_positions,
             meta_insights=meta_insights,
             signal_rankings=rank_df,
-            pipeline_stats=pipeline_stats,
+            pipeline_stats=core_pipeline_stats,
             backtest_signals=backtest_signals,
             subject_tag="Core"
         )
@@ -743,7 +750,7 @@ class DailyBacktester:
                 new_positions=ai_new,
                 meta_insights=ai_insight,
                 signal_rankings=None,
-                pipeline_stats=pipeline_stats,
+                pipeline_stats=ai_pipeline_stats,
                 backtest_signals=backtest_signals,
                 subject_tag="AI"
             )
