@@ -365,9 +365,19 @@ class DailyBacktester:
                 else:
                     target_portfolio = pd.concat([target_portfolio, short_df], ignore_index=True)
 
+            # Guardrail: combined long+short weights must never exceed 100% total capital.
+            if target_portfolio is not None and not target_portfolio.empty:
+                target_portfolio["weight"] = pd.to_numeric(
+                    target_portfolio["weight"], errors="coerce"
+                ).fillna(0.0).clip(lower=0.0)
+                total_weight = float(target_portfolio["weight"].sum() or 0.0)
+                if total_weight > 1.0:
+                    target_portfolio["weight"] = target_portfolio["weight"] / total_weight
+
         # Open NEW positions for selected stocks
         tp_pct = self.config.get('trading', {}).get('take_profit_pct', 0.03)
         new_positions = []
+        remaining_capital = float(available_capital)
         for _, row in target_portfolio.iterrows():
             symbol = row['symbol']
             raw_side = row.get("side", None)
@@ -386,7 +396,12 @@ class DailyBacktester:
 
             if not price_data.empty:
                 entry_price = price_data.iloc[0]['open']
-                allocation_dollars = row['weight'] * available_capital
+                requested_allocation = max(
+                    0.0, float(row.get('weight', 0.0) or 0.0) * float(available_capital)
+                )
+                allocation_dollars = min(requested_allocation, max(0.0, remaining_capital))
+                if allocation_dollars <= 0.0:
+                    continue
                 quantity = allocation_dollars / entry_price
                 allocation_pct = (allocation_dollars / current_capital * 100) if current_capital else 0.0
 
@@ -420,6 +435,7 @@ class DailyBacktester:
                         'allocation_dollars': allocation_dollars,
                         'reason': reason
                     })
+                    remaining_capital = max(0.0, remaining_capital - allocation_dollars)
 
         # Keep Core + AI strategies distinct by optionally preventing overlap.
         core_reserved_symbols = set(open_symbols)
@@ -474,7 +490,7 @@ class DailyBacktester:
         invested_notional = 0.0
         if not open_positions_now.empty:
             invested_notional = float((open_positions_now["entry_price"] * open_positions_now["quantity"]).sum() or 0.0)
-        available_cash = max(0.0, float(current_capital) - invested_notional)
+        available_cash = float(current_capital) - invested_notional
 
         report = {
             'date': test_date.date(),
@@ -631,11 +647,13 @@ class DailyBacktester:
 
             if ai_trades and ai_available_capital > 0:
                 conn_ai = sqlite3.connect(self.db_path)
+                ai_remaining_capital = float(ai_available_capital)
                 for t in ai_trades:
                     symbol = t["symbol"]
                     side = str(t.get("side") or "LONG").upper()
                     weight = float(t.get("weight", 0.0) or 0.0)
-                    allocation_dollars = weight * ai_available_capital
+                    requested_allocation = max(0.0, weight * float(ai_available_capital))
+                    allocation_dollars = min(requested_allocation, max(0.0, ai_remaining_capital))
                     if allocation_dollars <= 0:
                         continue
 
@@ -668,6 +686,7 @@ class DailyBacktester:
                             "allocation_dollars": allocation_dollars,
                             "reason": t.get("reason") or "LLM trade",
                         })
+                        ai_remaining_capital = max(0.0, ai_remaining_capital - allocation_dollars)
                 conn_ai.close()
 
             ai_closed = self.ai_tracker.check_and_close_positions(check_date=test_date.strftime('%Y-%m-%d'))
@@ -683,7 +702,7 @@ class DailyBacktester:
             ai_invested_notional = 0.0
             if not ai_open_now.empty:
                 ai_invested_notional = float((ai_open_now["entry_price"] * ai_open_now["quantity"]).sum() or 0.0)
-            ai_available_cash = max(0.0, float(ai_current_capital) - ai_invested_notional)
+            ai_available_cash = float(ai_current_capital) - ai_invested_notional
 
             ai_report = {
                 "date": test_date.date(),
