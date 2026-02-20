@@ -83,19 +83,13 @@ def _load_open_positions(conn, table_name):
     return out
 
 
-def _priority_rank_for_reduction(table_name, pos):
-    # User-requested one-time intervention: if core is over-capitalized, shrink JNJ short first.
-    if table_name == "positions" and pos.get("symbol") == "JNJ" and pos.get("side") == "SHORT":
-        return 0
-    # Otherwise reduce largest positions first.
-    return 1
-
-
 def enforce_position_cap(config_path):
     """
     Ensure each account stays within capital using current OPEN positions.
-    - If invested notional > current capital, reduce open quantities until invested <= capital.
-    - Core account prioritizes shrinking JNJ SHORT first when present.
+    - If invested notional > current capital, reduce open quantities proportionally.
+    - Core account special rule: keep JNJ SHORT at 5% of current capital, then scale other
+      open positions to fit within the remaining capital.
+    - Never zero out positions in this correction pass.
     """
     base_dir = os.path.dirname(os.path.abspath(config_path))
     with open(config_path, "r") as handle:
@@ -130,29 +124,51 @@ def enforce_position_cap(config_path):
                 }
                 continue
 
-            ordered = sorted(
-                open_positions,
-                key=lambda p: (_priority_rank_for_reduction(table_name, p), -float(p["notional"])),
-            )
+            # Start with current notionals as targets.
+            target_notional = {int(p["id"]): float(p["notional"]) for p in open_positions}
+
+            # Core rule: keep JNJ SHORT at 5% of account capital (if present),
+            # then scale all other positions to fill the remaining capital.
+            protected_ids = set()
+            jnj_target_notional = None
+            if table_name == "positions":
+                for p in open_positions:
+                    if p.get("symbol") == "JNJ" and p.get("side") == "SHORT":
+                        jnj_target_notional = float(current_capital) * 0.05
+                        # Only reduce via this pass; don't increase JNJ size.
+                        jnj_target_notional = min(float(p["notional"]), jnj_target_notional)
+                        target_notional[int(p["id"])] = jnj_target_notional
+                        protected_ids.add(int(p["id"]))
+                        break
+
+            protected_total = sum(target_notional[i] for i in protected_ids)
+            other_positions = [p for p in open_positions if int(p["id"]) not in protected_ids]
+            other_total = float(sum(float(p["notional"]) for p in other_positions) or 0.0)
+            remaining_budget = max(0.0, float(current_capital) - float(protected_total))
+
+            # Scale non-protected positions proportionally.
+            if other_total > 0.0:
+                scale = min(1.0, remaining_budget / other_total)
+                for p in other_positions:
+                    target_notional[int(p["id"])] = float(p["notional"]) * scale
+
             changes = []
-            for pos in ordered:
-                if overshoot <= 1e-6:
-                    break
-                reducible = min(float(pos["notional"]), float(overshoot))
-                new_notional = float(pos["notional"] - reducible)
-                if new_notional <= 1e-9:
-                    # Remove fully if quantity goes to 0.
-                    cursor.execute(f"DELETE FROM {table_name} WHERE id=?", (int(pos["id"]),))
-                    new_qty = 0.0
-                else:
-                    new_qty = new_notional / float(pos["entry_price"])
-                    cursor.execute(
-                        f"UPDATE {table_name} SET quantity=? WHERE id=?",
-                        (float(new_qty), int(pos["id"])),
-                    )
+            for pos in open_positions:
+                pos_id = int(pos["id"])
+                new_notional = max(0.0, float(target_notional.get(pos_id, float(pos["notional"]))))
+                # Never set position to zero in this correction pass.
+                if new_notional <= 0.0:
+                    continue
+                new_qty = new_notional / float(pos["entry_price"])
+                if abs(float(new_qty) - float(pos["quantity"])) <= 1e-12:
+                    continue
+                cursor.execute(
+                    f"UPDATE {table_name} SET quantity=? WHERE id=?",
+                    (float(new_qty), pos_id),
+                )
                 changes.append(
                     {
-                        "id": int(pos["id"]),
+                        "id": pos_id,
                         "symbol": pos["symbol"],
                         "side": pos["side"],
                         "old_qty": float(pos["quantity"]),
@@ -161,17 +177,19 @@ def enforce_position_cap(config_path):
                         "new_notional": float(new_notional),
                     }
                 )
-                overshoot -= reducible
 
             adjusted = len(changes)
             result["adjusted_total"] += adjusted
+            invested_after = float(sum(float(target_notional.get(int(p["id"]), p["notional"])) for p in open_positions) or 0.0)
             result["tables"][table_name] = {
                 "adjusted": adjusted,
-                "reason": "reduced_overshoot",
+                "reason": "scaled_to_cap",
                 "changes": changes,
                 "invested_before": invested,
+                "invested_after": invested_after,
                 "current_capital": current_capital,
-                "remaining_overshoot": max(0.0, float(overshoot)),
+                "remaining_overshoot": max(0.0, invested_after - float(current_capital)),
+                "jnj_target_notional": jnj_target_notional,
             }
 
         conn.commit()
