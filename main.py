@@ -20,7 +20,7 @@ from train import ModelManager
 from positions import PositionTracker
 from portfolio import PortfolioManager
 from backtest_signals import build_signal_snapshot
-from state_recovery import recover_positions_from_seed
+from state_recovery import recover_positions_from_seed, enforce_position_cap
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -1060,6 +1060,26 @@ def run_daily_job(config_path=None):
             log_step("State Recovery", "Skipped", recovery.get("reason", "no_recovery_needed"))
     except Exception as exc:
         log_step("State Recovery", "Failed", str(exc))
+
+    # Safety pass: if historical open positions exceed account capital,
+    # shrink quantities before today's strategy logic runs.
+    log_step("Position Sanity", "Started")
+    try:
+        sanity = enforce_position_cap(config_path)
+        adjusted_total = int(sanity.get("adjusted_total", 0) or 0)
+        if adjusted_total > 0:
+            details = []
+            core_tbl = (sanity.get("tables", {}) or {}).get("positions", {}) or {}
+            ai_tbl = (sanity.get("tables", {}) or {}).get("positions_ai", {}) or {}
+            if core_tbl.get("adjusted"):
+                details.append(f"core={core_tbl.get('adjusted')}")
+            if ai_tbl.get("adjusted"):
+                details.append(f"ai={ai_tbl.get('adjusted')}")
+            log_step("Position Sanity", "Completed", "Adjusted " + ", ".join(details))
+        else:
+            log_step("Position Sanity", "Skipped", "within_cap")
+    except Exception as exc:
+        log_step("Position Sanity", "Failed", str(exc))
 
     log_step("Market Check", "Started", f"Source: {src}")
 
