@@ -16,7 +16,8 @@ def propose_trades_with_llm(config, candidates, max_positions=10, allow_shorts=T
     llm_cfg = config.get("llm", {})
     # AI strategy can override model + key env (use a separate reasoning model/key if configured).
     ai_cfg = config.get("ai_trading", {}) if isinstance(config, dict) else {}
-    llm_cfg = dict(llm_cfg)
+    base_llm_cfg = dict(llm_cfg)
+    llm_cfg = dict(base_llm_cfg)
     llm_cfg["model"] = ai_cfg.get("llm_model", llm_cfg.get("model"))
     llm_cfg["api_key_env"] = ai_cfg.get("api_key_env", llm_cfg.get("api_key_env"))
     llm_cfg["fallback_models"] = ai_cfg.get("llm_fallback_models", llm_cfg.get("fallback_models", []))
@@ -29,10 +30,6 @@ def propose_trades_with_llm(config, candidates, max_positions=10, allow_shorts=T
         "fallback_models": llm_cfg.get("fallback_models", []),
         "api_key_env": llm_cfg.get("api_key_env"),
     }
-    if not client.is_ready():
-        key_env = getattr(client, "api_key_env", "NVIDIA_API_KEY")
-        status["error"] = f"LLM unavailable or {key_env} missing."
-        return [], status
 
     max_positions = int(max_positions or 0)
     if max_positions <= 0:
@@ -74,11 +71,47 @@ def propose_trades_with_llm(config, candidates, max_positions=10, allow_shorts=T
 
     user_msg = "Candidates:\n" + json.dumps(prompt_candidates, indent=2) + "\n\nRules:\n" + "\n".join(rules)
     messages = [{"role": "system", "content": system_msg}, {"role": "user", "content": user_msg}]
-    response_text = client.chat(messages)
+
+    # Primary: AI-specific model/key. Fallback: default LLM config/key if overrides fail.
+    attempted = []
+    response_text = None
+    fallback_to_default = False
+
+    candidate_cfgs = [("ai", llm_cfg)]
+    has_override = (
+        llm_cfg.get("model") != base_llm_cfg.get("model")
+        or llm_cfg.get("api_key_env") != base_llm_cfg.get("api_key_env")
+        or llm_cfg.get("fallback_models", []) != base_llm_cfg.get("fallback_models", [])
+    )
+    if has_override:
+        candidate_cfgs.append(("default", base_llm_cfg))
+
+    for label, cfg in candidate_cfgs:
+        candidate_client = NvidiaChatClient(cfg)
+        if not candidate_client.is_ready():
+            key_env = getattr(candidate_client, "api_key_env", "NVIDIA_API_KEY")
+            attempted.append(f"{label}: missing {key_env}")
+            continue
+
+        response_text = candidate_client.chat(messages)
+        if response_text is not None:
+            client = candidate_client
+            fallback_to_default = (label == "default")
+            break
+
+        attempted.append(f"{label}: {getattr(candidate_client, 'last_error', None) or 'LLM call failed.'}")
+
     if response_text is None:
-        status["error"] = getattr(client, "last_error", None) or "LLM call failed."
+        status["error"] = " | ".join(attempted) if attempted else (getattr(client, "last_error", None) or "LLM call failed.")
         status["model_used"] = getattr(client, "last_model_used", None)
         return [], status
+
+    if fallback_to_default:
+        status["fallback_to_default_llm"] = True
+        status["model"] = base_llm_cfg.get("model")
+        status["fallback_models"] = base_llm_cfg.get("fallback_models", [])
+        status["api_key_env"] = base_llm_cfg.get("api_key_env")
+
     status["model_used"] = getattr(client, "last_model_used", None) or status.get("model")
     parsed = _extract_json(response_text)
     if not isinstance(parsed, dict):
