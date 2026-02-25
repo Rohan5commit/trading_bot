@@ -103,31 +103,41 @@ class NvidiaChatClient:
 
     @staticmethod
     def _build_model_candidates(raw_model, fallback_models=None):
+        preferred = []
         raw = (raw_model or "").strip()
-        candidates = []
         if raw:
-            candidates.append(raw)
+            preferred.append(raw)
         for fb in fallback_models or []:
+            fb = str(fb or "").strip()
             if fb:
-                candidates.append(fb)
+                preferred.append(fb)
 
-        # stockmark-2-100b-instruct <-> stockmark/stockmark-2-100b-instruct
-        if raw and "/" not in raw and raw.startswith("stockmark-"):
-            candidates.append(f"stockmark/{raw}")
-        if raw and "/" in raw:
-            ns, name = raw.split("/", 1)
-            if ns == "stockmark" and name:
+        candidates = []
+        for model_id in preferred:
+            mid = str(model_id or "").strip()
+            if not mid:
+                continue
+
+            # Guardrail: nvidia/stockmark-* is not a valid NVIDIA model id.
+            # Rewrite to stockmark/<model> so fallback doesn't fail on this known bad variant.
+            if mid.startswith("nvidia/stockmark-"):
+                mid = "stockmark/" + mid.split("/", 1)[1]
+
+            candidates.append(mid)
+
+            if "/" not in mid:
+                # Plain stockmark models use stockmark/<model>; other plain ids may require nvidia/<model>.
+                if mid.startswith("stockmark-"):
+                    candidates.append(f"stockmark/{mid}")
+                else:
+                    candidates.append(f"nvidia/{mid}")
+                continue
+
+            namespace, name = mid.split("/", 1)
+            namespace = namespace.strip().lower()
+            name = name.strip()
+            if name and namespace in {"nvidia", "meta", "stockmark"}:
                 candidates.append(name)
-
-        # Some accounts expect nvidia/<model>
-        for c in list(candidates):
-            if c and not c.startswith("nvidia/") and "/" not in c:
-                candidates.append(f"nvidia/{c}")
-            if c and "/" in c and not c.startswith("nvidia/"):
-                # If already namespaced (e.g., stockmark/foo), also try nvidia/foo.
-                _, name = c.split("/", 1)
-                if name:
-                    candidates.append(f"nvidia/{name}")
 
         # De-dupe while preserving order.
         seen = set()
