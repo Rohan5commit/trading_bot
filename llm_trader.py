@@ -1,9 +1,27 @@
 import json
 import logging
+import re
 
 from llm_sentiment import NvidiaChatClient, _extract_json
 
 logger = logging.getLogger(__name__)
+
+_CJK_RE = re.compile(r"[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]")
+
+
+def _enforce_english_reason(reason: str, side: str) -> str:
+    text = str(reason or "").strip()
+    side_u = str(side or "LONG").upper()
+    fallback = (
+        "Momentum and risk profile support a short setup."
+        if side_u == "SHORT"
+        else "Momentum and risk profile support a long setup."
+    )
+    if not text:
+        return fallback
+    if _CJK_RE.search(text):
+        return fallback
+    return text
 
 
 def propose_trades_with_llm(config, candidates, max_positions=10, allow_shorts=True, max_shorts=5):
@@ -48,6 +66,7 @@ def propose_trades_with_llm(config, candidates, max_positions=10, allow_shorts=T
     system_msg = (
         "You are a trading decision engine. "
         "Return ONLY valid JSON (no markdown). "
+        "All 'reason' text must be in English only. "
         "Pick a diversified set of trades from the provided candidate list. "
         "There is no fixed strategy; use your own judgement based on the provided fields. "
         "If you want momentum/mean-reversion/volatility signals, derive them yourself from raw inputs "
@@ -63,7 +82,7 @@ def propose_trades_with_llm(config, candidates, max_positions=10, allow_shorts=T
         "- Each trade must be one of the provided symbols.",
         "- Output weights that sum to <= 1.0.",
         "- Use side LONG or SHORT.",
-        "- Include a short reason per trade.",
+        "- Include a short reason per trade (English only).",
         "",
         "JSON schema:",
         "{\"trades\": [{\"symbol\": \"AAPL\", \"side\": \"LONG\", \"weight\": 0.10, \"reason\": \"...\"}], \"notes\": \"...\"}",
@@ -148,7 +167,12 @@ def propose_trades_with_llm(config, candidates, max_positions=10, allow_shorts=T
             if shorts_count >= max_shorts:
                 continue
             shorts_count += 1
-        cleaned.append({"symbol": sym, "side": side, "weight": w, "reason": (t.get("reason") or "").strip()})
+        cleaned.append({
+            "symbol": sym,
+            "side": side,
+            "weight": w,
+            "reason": _enforce_english_reason(t.get("reason"), side),
+        })
         total_weight += w
         if len(cleaned) >= max_positions:
             break
