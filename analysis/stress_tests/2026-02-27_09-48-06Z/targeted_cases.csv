@@ -1,0 +1,8 @@
+case,ok,fallback_mode,skipped_reason,trades_count,candidates_seen,total_weight,error,cjk_reason_count,elapsed_ms
+missing_keys,True,rule_based,,3,3,1.0,ai: missing NVIDIA_REASONING_API_KEY | default: missing NVIDIA_API_KEY,0,0.063
+all_chat_fail,True,rule_based,,3,3,1.0,ai: simulated_chat_failure | default: simulated_chat_failure,0,0.036
+parse_error,True,rule_based_after_parse_error,,3,3,1.0,LLM response missing JSON.,0,0.031
+schema_error,True,rule_based_after_empty_trades,,3,3,1.0,LLM returned no usable trades.,0,0.033
+empty_usable,True,rule_based_after_empty_trades,,3,3,1.0,LLM returned no usable trades.,0,0.029
+japanese_reason_sanitized,True,,,2,3,1.0,,0,0.025
+no_candidates,True,,no_candidates,0,0,0.0,,0,0.003
