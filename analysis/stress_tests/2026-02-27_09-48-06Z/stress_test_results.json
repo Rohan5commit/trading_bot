@@ -1,0 +1,117 @@
+{
+  "generated_at_utc": "2026-02-27T09:48:06.558384+00:00",
+  "seed": 20260227,
+  "fuzz_iterations": 3000,
+  "fuzz_runtime_seconds": 1.537,
+  "exceptions_count": 0,
+  "non_ok_count": 0,
+  "cjk_reason_violations": 0,
+  "fallback_mode_counts": {
+    "none": 25,
+    "rule_based": 2975
+  },
+  "trades_count_stats": {
+    "min": 0,
+    "max": 10,
+    "mean": 9.3347,
+    "median": 10.0
+  },
+  "input_count_stats": {
+    "min": 0,
+    "max": 160,
+    "mean": 80.7823,
+    "median": 80.0
+  },
+  "candidates_seen_stats": {
+    "min": 0,
+    "max": 80,
+    "mean": 38.058,
+    "median": 38.0
+  },
+  "targeted_cases": [
+    {
+      "case": "missing_keys",
+      "ok": true,
+      "fallback_mode": "rule_based",
+      "skipped_reason": "",
+      "trades_count": 3,
+      "candidates_seen": 3,
+      "total_weight": 1.0,
+      "error": "ai: missing NVIDIA_REASONING_API_KEY | default: missing NVIDIA_API_KEY",
+      "cjk_reason_count": 0,
+      "elapsed_ms": 0.063
+    },
+    {
+      "case": "all_chat_fail",
+      "ok": true,
+      "fallback_mode": "rule_based",
+      "skipped_reason": "",
+      "trades_count": 3,
+      "candidates_seen": 3,
+      "total_weight": 1.0,
+      "error": "ai: simulated_chat_failure | default: simulated_chat_failure",
+      "cjk_reason_count": 0,
+      "elapsed_ms": 0.036
+    },
+    {
+      "case": "parse_error",
+      "ok": true,
+      "fallback_mode": "rule_based_after_parse_error",
+      "skipped_reason": "",
+      "trades_count": 3,
+      "candidates_seen": 3,
+      "total_weight": 1.0,
+      "error": "LLM response missing JSON.",
+      "cjk_reason_count": 0,
+      "elapsed_ms": 0.031
+    },
+    {
+      "case": "schema_error",
+      "ok": true,
+      "fallback_mode": "rule_based_after_empty_trades",
+      "skipped_reason": "",
+      "trades_count": 3,
+      "candidates_seen": 3,
+      "total_weight": 1.0,
+      "error": "LLM returned no usable trades.",
+      "cjk_reason_count": 0,
+      "elapsed_ms": 0.033
+    },
+    {
+      "case": "empty_usable",
+      "ok": true,
+      "fallback_mode": "rule_based_after_empty_trades",
+      "skipped_reason": "",
+      "trades_count": 3,
+      "candidates_seen": 3,
+      "total_weight": 1.0,
+      "error": "LLM returned no usable trades.",
+      "cjk_reason_count": 0,
+      "elapsed_ms": 0.029
+    },
+    {
+      "case": "japanese_reason_sanitized",
+      "ok": true,
+      "fallback_mode": "",
+      "skipped_reason": "",
+      "trades_count": 2,
+      "candidates_seen": 3,
+      "total_weight": 1.0,
+      "error": "",
+      "cjk_reason_count": 0,
+      "elapsed_ms": 0.025
+    },
+    {
+      "case": "no_candidates",
+      "ok": true,
+      "fallback_mode": "",
+      "skipped_reason": "no_candidates",
+      "trades_count": 0,
+      "candidates_seen": 0,
+      "total_weight": 0.0,
+      "error": "",
+      "cjk_reason_count": 0,
+      "elapsed_ms": 0.003
+    }
+  ]
+}
