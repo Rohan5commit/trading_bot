@@ -165,6 +165,10 @@ def propose_trades_with_llm(config, candidates, max_positions=10, allow_shorts=T
     prompt_limit = int(ai_cfg.get("prompt_candidates_limit", 80) or 80)
     prompt_candidates = list(candidates or [])[:max(1, prompt_limit)]
     status["candidates_seen"] = len(prompt_candidates)
+    if not prompt_candidates:
+        status["ok"] = True
+        status["skipped_reason"] = "no_candidates"
+        return [], status
 
     system_msg = (
         "You are a trading decision engine. "
