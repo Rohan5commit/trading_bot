@@ -1,0 +1,60 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset='utf-8' />
+  <title>AI Stress Test Presentation</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 0; background: #f5f7fb; color: #111; }
+    section { padding: 40px; border-bottom: 1px solid #d9deea; background: white; }
+    h1,h2 { margin-top: 0; }
+    .kpi { display: grid; grid-template-columns: repeat(3, minmax(180px, 1fr)); gap: 12px; }
+    .card { background: #eef3ff; padding: 12px; border-radius: 8px; }
+    img { max-width: 100%; height: auto; border: 1px solid #ddd; border-radius: 6px; }
+    table { border-collapse: collapse; width: 100%; }
+    th, td { border: 1px solid #ddd; padding: 6px; text-align: left; font-size: 13px; }
+    th { background: #f0f3fa; }
+  </style>
+</head>
+<body>
+  <section>
+    <h1>AI Trade-Selection Stress Test</h1>
+    <p>Generated at: 2026-02-27T09:48:06.558384+00:00 (UTC)</p>
+    <p>Scope: isolated <code>llm_trader.py</code> stress test only. No scheduler/main bot run executed.</p>
+  </section>
+
+  <section>
+    <h2>Key Metrics</h2>
+    <div class='kpi'>
+      <div class='card'><b>Seed</b><br>20260227</div>
+      <div class='card'><b>Fuzz Iterations</b><br>3000</div>
+      <div class='card'><b>Runtime (s)</b><br>1.537</div>
+      <div class='card'><b>Exceptions</b><br>0</div>
+      <div class='card'><b>Non-ok</b><br>0</div>
+      <div class='card'><b>CJK Violations</b><br>0</div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Fallback Mode Distribution</h2>
+    <img src='fallback_mode_distribution.png' alt='fallback mode distribution' />
+  </section>
+
+  <section>
+    <h2>Trades Count Distribution</h2>
+    <img src='trades_count_distribution.png' alt='trades count distribution' />
+  </section>
+
+  <section>
+    <h2>Candidates vs Trades</h2>
+    <img src='candidates_vs_trades.png' alt='candidates vs trades' />
+  </section>
+
+  <section>
+    <h2>Targeted Cases (Actual Outputs)</h2>
+    <table>
+      <tr><th>case</th><th>ok</th><th>fallback_mode</th><th>skipped_reason</th><th>trades_count</th><th>cjk_reason_count</th><th>error</th></tr>
+      <tr><td>missing_keys</td><td>1</td><td>rule_based</td><td></td><td>3</td><td>0</td><td>ai: missing NVIDIA_REASONING_API_KEY | default: missing NVIDIA_API_KEY</td></tr><tr><td>all_chat_fail</td><td>1</td><td>rule_based</td><td></td><td>3</td><td>0</td><td>ai: simulated_chat_failure | default: simulated_chat_failure</td></tr><tr><td>parse_error</td><td>1</td><td>rule_based_after_parse_error</td><td></td><td>3</td><td>0</td><td>LLM response missing JSON.</td></tr><tr><td>schema_error</td><td>1</td><td>rule_based_after_empty_trades</td><td></td><td>3</td><td>0</td><td>LLM returned no usable trades.</td></tr><tr><td>empty_usable</td><td>1</td><td>rule_based_after_empty_trades</td><td></td><td>3</td><td>0</td><td>LLM returned no usable trades.</td></tr><tr><td>japanese_reason_sanitized</td><td>1</td><td></td><td></td><td>2</td><td>0</td><td></td></tr><tr><td>no_candidates</td><td>1</td><td></td><td>no_candidates</td><td>0</td><td>0</td><td></td></tr>
+    </table>
+  </section>
+</body>
+</html>
