@@ -24,6 +24,109 @@ def _enforce_english_reason(reason: str, side: str) -> str:
     return text
 
 
+def _score_candidate(candidate: dict) -> float:
+    """
+    Deterministic score from raw price inputs when LLM is unavailable.
+    Positive => long bias, negative => short bias.
+    """
+    closes = candidate.get("closes_tail") or []
+    try:
+        closes = [float(x) for x in closes if x is not None]
+    except Exception:
+        closes = []
+    if len(closes) >= 2 and closes[0] > 0:
+        return (closes[-1] / closes[0]) - 1.0
+    try:
+        last_close = float(candidate.get("last_close"))
+    except Exception:
+        last_close = 0.0
+    return 0.0 if last_close <= 0 else 1e-9
+
+
+def _rule_based_fallback_trades(candidates, max_positions=10, allow_shorts=True, max_shorts=5):
+    """
+    Last-resort deterministic fallback so AI entries are never blocked by LLM outages.
+    """
+    max_positions = max(0, int(max_positions or 0))
+    if max_positions <= 0:
+        return []
+
+    # Keep one row per symbol.
+    rows = []
+    seen = set()
+    for c in list(candidates or []):
+        sym = str((c or {}).get("symbol") or "").strip().upper()
+        if not sym or sym in seen:
+            continue
+        seen.add(sym)
+        score = _score_candidate(c or {})
+        rows.append({"symbol": sym, "score": float(score)})
+
+    if not rows:
+        return []
+
+    rows_sorted = sorted(rows, key=lambda x: x["score"], reverse=True)
+    negatives = [r for r in rows_sorted if r["score"] < 0]
+    positives = [r for r in rows_sorted if r["score"] >= 0]
+
+    shorts_slots = 0
+    if bool(allow_shorts) and int(max_shorts or 0) > 0 and negatives:
+        shorts_slots = min(int(max_shorts or 0), max_positions // 2, len(negatives))
+    long_slots = max_positions - shorts_slots
+
+    picked = []
+    picked_symbols = set()
+
+    # Longs from strongest scores first.
+    for row in rows_sorted:
+        if len(picked) >= long_slots:
+            break
+        sym = row["symbol"]
+        if sym in picked_symbols:
+            continue
+        picked.append(
+            {
+                "symbol": sym,
+                "side": "LONG",
+                "score": row["score"],
+                "reason": f"Rule-based fallback: positive trend score {row['score']:.2%}.",
+            }
+        )
+        picked_symbols.add(sym)
+
+    # Shorts from most negative scores.
+    if shorts_slots > 0:
+        for row in sorted(negatives, key=lambda x: x["score"]):
+            if len([p for p in picked if p["side"] == "SHORT"]) >= shorts_slots:
+                break
+            sym = row["symbol"]
+            if sym in picked_symbols:
+                continue
+            picked.append(
+                {
+                    "symbol": sym,
+                    "side": "SHORT",
+                    "score": row["score"],
+                    "reason": f"Rule-based fallback: negative trend score {row['score']:.2%}.",
+                }
+            )
+            picked_symbols.add(sym)
+
+    if not picked:
+        return []
+
+    w = 1.0 / float(len(picked))
+    return [
+        {
+            "symbol": p["symbol"],
+            "side": p["side"],
+            "weight": w,
+            "reason": _enforce_english_reason(p["reason"], p["side"]),
+        }
+        for p in picked
+    ]
+
+
 def propose_trades_with_llm(config, candidates, max_positions=10, allow_shorts=True, max_shorts=5):
     """
     candidates: list[dict] with at minimum: symbol
@@ -121,6 +224,19 @@ def propose_trades_with_llm(config, candidates, max_positions=10, allow_shorts=T
         attempted.append(f"{label}: {getattr(candidate_client, 'last_error', None) or 'LLM call failed.'}")
 
     if response_text is None:
+        fallback_trades = _rule_based_fallback_trades(
+            prompt_candidates,
+            max_positions=max_positions,
+            allow_shorts=allow_shorts,
+            max_shorts=max_shorts,
+        )
+        if fallback_trades:
+            status["ok"] = True
+            status["fallback_mode"] = "rule_based"
+            status["error"] = " | ".join(attempted) if attempted else (getattr(client, "last_error", None) or "LLM call failed.")
+            status["model_used"] = getattr(client, "last_model_used", None)
+            status["total_weight"] = float(sum(float(t.get("weight", 0.0) or 0.0) for t in fallback_trades))
+            return fallback_trades, status
         status["error"] = " | ".join(attempted) if attempted else (getattr(client, "last_error", None) or "LLM call failed.")
         status["model_used"] = getattr(client, "last_model_used", None)
         return [], status
@@ -134,11 +250,35 @@ def propose_trades_with_llm(config, candidates, max_positions=10, allow_shorts=T
     status["model_used"] = getattr(client, "last_model_used", None) or status.get("model")
     parsed = _extract_json(response_text)
     if not isinstance(parsed, dict):
+        fallback_trades = _rule_based_fallback_trades(
+            prompt_candidates,
+            max_positions=max_positions,
+            allow_shorts=allow_shorts,
+            max_shorts=max_shorts,
+        )
+        if fallback_trades:
+            status["ok"] = True
+            status["fallback_mode"] = "rule_based_after_parse_error"
+            status["error"] = "LLM response missing JSON."
+            status["total_weight"] = float(sum(float(t.get("weight", 0.0) or 0.0) for t in fallback_trades))
+            return fallback_trades, status
         status["error"] = "LLM response missing JSON."
         return [], status
 
     trades = parsed.get("trades", [])
     if not isinstance(trades, list):
+        fallback_trades = _rule_based_fallback_trades(
+            prompt_candidates,
+            max_positions=max_positions,
+            allow_shorts=allow_shorts,
+            max_shorts=max_shorts,
+        )
+        if fallback_trades:
+            status["ok"] = True
+            status["fallback_mode"] = "rule_based_after_schema_error"
+            status["error"] = "LLM response JSON missing 'trades' list."
+            status["total_weight"] = float(sum(float(t.get("weight", 0.0) or 0.0) for t in fallback_trades))
+            return fallback_trades, status
         status["error"] = "LLM response JSON missing 'trades' list."
         return [], status
 
@@ -178,6 +318,18 @@ def propose_trades_with_llm(config, candidates, max_positions=10, allow_shorts=T
             break
 
     if not cleaned:
+        fallback_trades = _rule_based_fallback_trades(
+            prompt_candidates,
+            max_positions=max_positions,
+            allow_shorts=allow_shorts,
+            max_shorts=max_shorts,
+        )
+        if fallback_trades:
+            status["ok"] = True
+            status["fallback_mode"] = "rule_based_after_empty_trades"
+            status["error"] = "LLM returned no usable trades."
+            status["total_weight"] = float(sum(float(t.get("weight", 0.0) or 0.0) for t in fallback_trades))
+            return fallback_trades, status
         status["error"] = "LLM returned no usable trades."
         return [], status
 
