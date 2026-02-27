@@ -29,6 +29,8 @@ def _score_candidate(candidate: dict) -> float:
     Deterministic score from raw price inputs when LLM is unavailable.
     Positive => long bias, negative => short bias.
     """
+    if not isinstance(candidate, dict):
+        return 0.0
     closes = candidate.get("closes_tail") or []
     try:
         closes = [float(x) for x in closes if x is not None]
@@ -55,6 +57,8 @@ def _rule_based_fallback_trades(candidates, max_positions=10, allow_shorts=True,
     rows = []
     seen = set()
     for c in list(candidates or []):
+        if not isinstance(c, dict):
+            continue
         sym = str((c or {}).get("symbol") or "").strip().upper()
         if not sym or sym in seen:
             continue
@@ -127,6 +131,23 @@ def _rule_based_fallback_trades(candidates, max_positions=10, allow_shorts=True,
     ]
 
 
+def _normalize_candidates(candidates, limit=80):
+    out = []
+    lim = max(1, int(limit or 1))
+    for item in list(candidates or []):
+        if not isinstance(item, dict):
+            continue
+        sym = str(item.get("symbol") or "").strip().upper()
+        if not sym:
+            continue
+        row = dict(item)
+        row["symbol"] = sym
+        out.append(row)
+        if len(out) >= lim:
+            break
+    return out
+
+
 def propose_trades_with_llm(config, candidates, max_positions=10, allow_shorts=True, max_shorts=5):
     """
     candidates: list[dict] with at minimum: symbol
@@ -163,7 +184,7 @@ def propose_trades_with_llm(config, candidates, max_positions=10, allow_shorts=T
 
     # Keep prompt compact but "strategy-free": include the provided candidates as-is (bounded).
     prompt_limit = int(ai_cfg.get("prompt_candidates_limit", 80) or 80)
-    prompt_candidates = list(candidates or [])[:max(1, prompt_limit)]
+    prompt_candidates = _normalize_candidates(candidates, prompt_limit)
     status["candidates_seen"] = len(prompt_candidates)
     if not prompt_candidates:
         status["ok"] = True
@@ -286,7 +307,7 @@ def propose_trades_with_llm(config, candidates, max_positions=10, allow_shorts=T
         status["error"] = "LLM response JSON missing 'trades' list."
         return [], status
 
-    allowed = {c.get("symbol") for c in prompt_candidates if c.get("symbol")}
+    allowed = {c["symbol"] for c in prompt_candidates}
     cleaned = []
     total_weight = 0.0
     shorts_count = 0
