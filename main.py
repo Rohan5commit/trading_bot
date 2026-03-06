@@ -374,6 +374,12 @@ class DailyBacktester:
                 if total_weight > 1.0:
                     target_portfolio["weight"] = target_portfolio["weight"] / total_weight
 
+                # Guardrail: enforce minimum total weight to avoid leaving too much cash idle
+                min_weight = float(self.config.get("trading", {}).get("min_total_weight", 0.0))
+                if min_weight > 0 and 0 < total_weight < min_weight:
+                    target_portfolio["weight"] = target_portfolio["weight"] * (min_weight / total_weight)
+                    logger.info(f"Adjusted weights from {total_weight:.2%} to {min_weight:.2%} to deploy more capital")
+
         # Open NEW positions for selected stocks
         tp_pct = self.config.get('trading', {}).get('take_profit_pct', 0.03)
         new_positions = []
