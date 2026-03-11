@@ -323,8 +323,18 @@ class DailyBacktester:
             invested_cost = (open_positions_df['entry_price'] * open_positions_df['quantity']).sum()
 
         available_capital = max(0.0, current_capital - invested_cost)
+        cash_pct = (available_capital / current_capital) if current_capital else 0.0
+        max_cash_pct = float(self.config.get("trading", {}).get("max_cash_pct", 1.0))
+        max_cash_pct = max(0.0, min(1.0, max_cash_pct))
+        cash_drag_excess = available_capital > 0 and cash_pct > max_cash_pct
 
         if available_slots == 0 or available_capital <= 0:
+            if available_slots == 0 and cash_drag_excess:
+                logger.warning(
+                    "Cash drag %.1f%% exceeds max_cash_pct %.1f%% but no slots are available (max_positions reached).",
+                    cash_pct * 100,
+                    max_cash_pct * 100,
+                )
             logger.info("No available slots or capital for new positions today.")
             target_portfolio = pd.DataFrame()
         else:
@@ -342,6 +352,19 @@ class DailyBacktester:
             short_df = pd.DataFrame()
             if enable_shorts and max_shorts > 0:
                 short_df = rank_df_filtered[rank_df_filtered["adjusted_score"] <= short_threshold].copy()
+
+            # Cash-drag fallback: if no signals and cash is too high, relax filters.
+            if cash_drag_excess and long_df.empty and short_df.empty:
+                logger.warning(
+                    "Cash drag %.1f%% exceeds max_cash_pct %.1f%%; relaxing signal filters to deploy capital.",
+                    cash_pct * 100,
+                    max_cash_pct * 100,
+                )
+                long_df = rank_df_filtered.copy()
+                if enable_shorts and max_shorts > 0:
+                    short_df = rank_df_filtered[rank_df_filtered["adjusted_score"] < 0].copy()
+                    if not short_df.empty:
+                        long_df = long_df[~long_df["symbol"].isin(short_df["symbol"])]
 
             # Allocate slots between longs and shorts (shorts capped).
             shorts_slots = min(max_shorts, available_slots)

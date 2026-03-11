@@ -130,6 +130,8 @@ trading:
   stop_loss_pct: null  # Bot-determined risk
   # Force at least 90% of available capital to be deployed (prevents excessive cash drag)
   min_total_weight: 0.90
+  # Soft cap on idle cash. If cash exceeds this fraction, the bot relaxes signal filters.
+  max_cash_pct: 0.50
 
 risk:
   max_position_equity_pct: 0.10
