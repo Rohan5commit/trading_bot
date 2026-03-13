@@ -232,6 +232,54 @@ class DailyBacktester:
 
         return rankings
 
+    def get_fallback_rankings_for_date_bulk(self, symbols, signal_date, conn, lookback_days=120):
+        """
+        Fallback ranking when no ML models are available.
+        Uses simple 10-day momentum computed from price history.
+        """
+        sig = pd.to_datetime(signal_date)
+        start = (sig - timedelta(days=int(lookback_days))).strftime("%Y-%m-%d")
+        sig_str = sig.strftime("%Y-%m-%d")
+
+        symbols = [str(s or "").strip().upper() for s in symbols if str(s or "").strip()]
+        if not symbols:
+            return []
+
+        placeholders = ",".join(["?"] * len(symbols))
+        q = (
+            "SELECT symbol, date, close "
+            "FROM prices "
+            f"WHERE symbol IN ({placeholders}) AND date >= ? "
+            "ORDER BY symbol, date"
+        )
+        df = pd.read_sql(q, conn, params=list(symbols) + [start])
+        if df.empty:
+            return []
+
+        df["date"] = pd.to_datetime(df["date"])
+
+        def _add_momentum(g):
+            g = g.sort_values("date").reset_index(drop=True)
+            g["return_10d"] = g["close"].pct_change(10)
+            return g
+
+        feat = df.groupby("symbol", group_keys=False).apply(_add_momentum)
+        feat_on_date = feat[feat["date"] == pd.to_datetime(sig_str)]
+        if feat_on_date.empty:
+            return []
+
+        rankings = []
+        for _, row in feat_on_date.iterrows():
+            sym = str(row.get("symbol", "")).strip().upper()
+            if not sym:
+                continue
+            try:
+                score = float(row.get("return_10d", 0.0))
+            except Exception:
+                continue
+            rankings.append({"symbol": sym, "predicted_return": score})
+        return rankings
+
     def run_daily_test(self, test_date=None, pipeline_stats=None, backtest_signals=None):
         """
         Position-Tracking Backtest:
@@ -280,9 +328,16 @@ class DailyBacktester:
         )
 
         if not rankings:
-            logger.warning("No predictions generated.")
-            conn.close()
-            return None
+            logger.warning("No ML predictions generated; falling back to momentum-based rankings.")
+            rankings = self.get_fallback_rankings_for_date_bulk(
+                universe_df["ticker"].tolist(),
+                signal_date,
+                conn,
+            )
+            if not rankings:
+                logger.warning("No fallback rankings generated.")
+                conn.close()
+                return None
 
         rank_df = pd.DataFrame(rankings).sort_values('predicted_return', ascending=False)
 
