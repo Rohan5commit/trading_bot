@@ -372,6 +372,9 @@ class DailyBacktester:
         open_positions_df = self.core_tracker.get_open_positions()
         open_symbols = set(open_positions_df['symbol']) if not open_positions_df.empty else set()
         max_positions = self.config.get('trading', {}).get('max_positions', 10)
+        trading_cfg = self.config.get("trading", {}) if isinstance(self.config, dict) else {}
+        risk_cfg = self.config.get("risk", {}) if isinstance(self.config, dict) else {}
+        short_threshold = float(trading_cfg.get("short_threshold", -0.0))
         available_slots = max(0, max_positions - len(open_symbols))
         invested_cost = 0.0
         if not open_positions_df.empty:
@@ -379,8 +382,14 @@ class DailyBacktester:
 
         available_capital = max(0.0, current_capital - invested_cost)
         cash_pct = (available_capital / current_capital) if current_capital else 0.0
-        max_cash_pct = float(self.config.get("trading", {}).get("max_cash_pct", 1.0))
+        max_cash_pct = float(trading_cfg.get("max_cash_pct", 1.0))
         max_cash_pct = max(0.0, min(1.0, max_cash_pct))
+        min_weight = float(trading_cfg.get("min_total_weight", 0.0) or 0.0)
+        min_weight = max(0.0, min(1.0, min_weight))
+        idle_cash_caps = [float(current_capital) * max_cash_pct]
+        if min_weight > 0.0:
+            idle_cash_caps.append(float(current_capital) * max(0.0, 1.0 - min_weight))
+        allowed_idle_cash = min(idle_cash_caps) if idle_cash_caps else 0.0
         cash_drag_excess = available_capital > 0 and cash_pct > max_cash_pct
 
         if available_slots == 0 or available_capital <= 0:
@@ -401,7 +410,6 @@ class DailyBacktester:
             portfolio_mgr = PortfolioManager(self.config_path)
             enable_shorts = bool(self.config.get("trading", {}).get("enable_shorts", False))
             max_shorts = int(self.config.get("trading", {}).get("max_shorts", 0))
-            short_threshold = float(self.config.get("trading", {}).get("short_threshold", -0.0))
 
             long_df = rank_df_filtered[rank_df_filtered["adjusted_score"] > 0].copy()
             short_df = pd.DataFrame()
@@ -453,7 +461,6 @@ class DailyBacktester:
                     target_portfolio["weight"] = target_portfolio["weight"] / total_weight
 
                 # Guardrail: enforce minimum total weight to avoid leaving too much cash idle
-                min_weight = float(self.config.get("trading", {}).get("min_total_weight", 0.0))
                 if min_weight > 0 and 0 < total_weight < min_weight:
                     target_portfolio["weight"] = target_portfolio["weight"] * (min_weight / total_weight)
                     logger.info(f"Adjusted weights from {total_weight:.2%} to {min_weight:.2%} to deploy more capital")
@@ -461,6 +468,7 @@ class DailyBacktester:
         # Open NEW positions for selected stocks
         tp_pct = self.config.get('trading', {}).get('take_profit_pct', 0.03)
         new_positions = []
+        top_up_positions = []
         remaining_capital = float(available_capital)
         for _, row in target_portfolio.iterrows():
             symbol = row['symbol']
@@ -521,6 +529,111 @@ class DailyBacktester:
                     })
                     remaining_capital = max(0.0, remaining_capital - allocation_dollars)
 
+        # If older under-sized positions are occupying slots, scale into the best-held names
+        # before leaving excess cash idle.
+        extra_to_deploy = max(0.0, float(remaining_capital) - float(allowed_idle_cash))
+        max_position_equity_pct = float(risk_cfg.get("max_position_equity_pct", 1.0) or 1.0)
+        max_position_equity_pct = max(0.0, min(1.0, max_position_equity_pct))
+        if extra_to_deploy > 0.0 and max_position_equity_pct > 0.0:
+            open_positions_for_top_up = self.core_tracker.get_open_positions()
+            if open_positions_for_top_up is not None and not open_positions_for_top_up.empty:
+                top_up_df = open_positions_for_top_up.copy()
+                top_up_df["symbol"] = top_up_df["symbol"].astype(str).str.strip().str.upper()
+                top_up_df["side"] = top_up_df["side"].fillna("LONG").astype(str).str.upper()
+                top_up_df["entry_price"] = pd.to_numeric(top_up_df["entry_price"], errors="coerce").fillna(0.0)
+                top_up_df["quantity"] = pd.to_numeric(top_up_df["quantity"], errors="coerce").fillna(0.0)
+                top_up_df["notional"] = top_up_df["entry_price"] * top_up_df["quantity"]
+                top_up_df["adjusted_score"] = top_up_df["symbol"].map(
+                    lambda sym: float(rank_lookup.loc[sym]["adjusted_score"]) if sym in rank_lookup.index else 0.0
+                )
+                top_up_df["rank_priority"] = top_up_df["adjusted_score"].abs()
+
+                supported_mask = (
+                    ((top_up_df["side"] == "LONG") & (top_up_df["adjusted_score"] > 0))
+                    | ((top_up_df["side"] == "SHORT") & (top_up_df["adjusted_score"] <= short_threshold))
+                )
+                top_up_candidates = top_up_df[supported_mask].copy()
+                if top_up_candidates.empty:
+                    top_up_candidates = top_up_df.copy()
+
+                top_up_candidates = top_up_candidates.sort_values(
+                    ["rank_priority", "adjusted_score"],
+                    ascending=[False, False],
+                )
+
+                max_position_notional = float(current_capital) * max_position_equity_pct
+                logger.warning(
+                    "Core cash drag remains %.2f with idle-cash cap %.2f; topping up existing positions.",
+                    float(remaining_capital),
+                    float(allowed_idle_cash),
+                )
+                for _, pos in top_up_candidates.iterrows():
+                    if extra_to_deploy <= 0.0:
+                        break
+
+                    current_notional = float(pos.get("notional", 0.0) or 0.0)
+                    room = max(0.0, max_position_notional - current_notional)
+                    if room <= 0.0:
+                        continue
+
+                    symbol = str(pos["symbol"]).strip().upper()
+                    side = str(pos.get("side") or "LONG").upper()
+                    price_data = pd.read_sql(
+                        "SELECT open FROM prices WHERE symbol=? AND date=?",
+                        conn,
+                        params=(symbol, test_date.strftime("%Y-%m-%d")),
+                    )
+                    if price_data.empty:
+                        continue
+
+                    entry_price = float(price_data.iloc[0]["open"] or 0.0)
+                    if entry_price <= 0.0:
+                        continue
+
+                    allocation_dollars = min(extra_to_deploy, room)
+                    quantity = allocation_dollars / entry_price if entry_price else 0.0
+                    if quantity <= 0.0:
+                        continue
+
+                    added = self.core_tracker.add_to_position(
+                        symbol=symbol,
+                        add_date=test_date.strftime("%Y-%m-%d"),
+                        add_price=entry_price,
+                        quantity=quantity,
+                        side=side,
+                    )
+                    if not added:
+                        continue
+
+                    reason = "Cash-drag top-up of existing position"
+                    if symbol in rank_lookup.index:
+                        info = rank_lookup.loc[symbol]
+                        reason = (
+                            f"Cash-drag top-up (pred {float(info['predicted_return']):.2%}, "
+                            f"adj {float(info['adjusted_score']):.2%}, rank {int(info['rank'])})"
+                        )
+
+                    top_up_positions.append({
+                        "symbol": symbol,
+                        "side": side,
+                        "entry_price": entry_price,
+                        "target_price": added["target_price"],
+                        "quantity": quantity,
+                        "allocation_pct": (allocation_dollars / current_capital * 100) if current_capital else 0.0,
+                        "allocation_dollars": allocation_dollars,
+                        "reason": reason,
+                    })
+                    remaining_capital = max(0.0, remaining_capital - allocation_dollars)
+                    extra_to_deploy = max(0.0, extra_to_deploy - allocation_dollars)
+
+                if extra_to_deploy > 0.0:
+                    logger.warning(
+                        "Core cash drag persists after top-ups; %.2f cash still exceeds the idle-cash cap.",
+                        extra_to_deploy,
+                    )
+
+        entries_today = list(new_positions) + list(top_up_positions)
+
         # Keep Core + AI strategies distinct by optionally preventing overlap.
         core_reserved_symbols = set(open_symbols)
         if target_portfolio is not None and hasattr(target_portfolio, "empty") and not target_portfolio.empty:
@@ -579,6 +692,7 @@ class DailyBacktester:
         report = {
             'date': test_date.date(),
             'new_positions_opened': len(new_positions),
+            'positions_topped_up': len(top_up_positions),
             'positions_closed_at_tp': len(closed_positions),
             'open_positions': summary['open_positions'],
             'realized_pnl_today': realized_today,
@@ -835,7 +949,7 @@ class DailyBacktester:
             report_data=report,
             unrealized_df=unrealized,
             closed_positions=closed_positions,
-            new_positions=new_positions,
+            new_positions=entries_today,
             meta_insights=meta_insights,
             signal_rankings=rank_df,
             pipeline_stats=core_pipeline_stats,

@@ -36,6 +36,12 @@ class PositionTracker:
         self.table_name = self._validate_table_name(table_name)
         self._init_tables()
 
+    def _target_price_for_side(self, entry_price, side):
+        side = str(side or "LONG").upper()
+        if side == "SHORT":
+            return float(entry_price) * (1 - self.tp_pct)
+        return float(entry_price) * (1 + self.tp_pct)
+
     @staticmethod
     def _validate_table_name(name: str) -> str:
         # Prevent SQL injection via table_name.
@@ -86,10 +92,7 @@ class PositionTracker:
         if side not in {"LONG", "SHORT"}:
             raise ValueError(f"Unsupported side: {side}")
 
-        if side == "LONG":
-            target_price = entry_price * (1 + self.tp_pct)
-        else:
-            target_price = entry_price * (1 - self.tp_pct)
+        target_price = self._target_price_for_side(entry_price, side)
         
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
@@ -119,6 +122,84 @@ class PositionTracker:
         
         logger.info(f"Opened position #{position_id}: {symbol} {side} @ {entry_price:.2f}, TP @ {target_price:.2f}")
         return position_id
+
+    def add_to_position(self, symbol, add_date, add_price, quantity, side=None):
+        """Add capital to an existing open position and blend the average entry price."""
+        symbol = str(symbol or "").strip().upper()
+        if not symbol:
+            return None
+
+        try:
+            add_price = float(add_price or 0.0)
+            quantity = float(quantity or 0.0)
+        except (TypeError, ValueError):
+            return None
+
+        if add_price <= 0.0 or quantity <= 0.0:
+            return None
+
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        existing = cursor.execute(
+            f"""
+            SELECT id, side, entry_date, entry_price, quantity
+            FROM {self.table_name}
+            WHERE symbol=? AND status='OPEN'
+            """,
+            (symbol,),
+        ).fetchone()
+
+        if not existing:
+            conn.close()
+            return None
+
+        pos_id, existing_side, existing_entry_date, existing_entry_price, existing_qty = existing
+        existing_side = str(existing_side or "LONG").upper()
+        if side is not None and str(side or "LONG").upper() != existing_side:
+            conn.close()
+            raise ValueError(f"Side mismatch for add_to_position({symbol})")
+
+        existing_entry_price = float(existing_entry_price or 0.0)
+        existing_qty = float(existing_qty or 0.0)
+        new_qty = existing_qty + quantity
+        if new_qty <= 0.0:
+            conn.close()
+            return None
+
+        blended_entry = ((existing_entry_price * existing_qty) + (add_price * quantity)) / new_qty
+        target_price = self._target_price_for_side(blended_entry, existing_side)
+
+        cursor.execute(
+            f"""
+            UPDATE {self.table_name}
+            SET entry_price=?, quantity=?, target_price=?
+            WHERE id=?
+            """,
+            (blended_entry, new_qty, target_price, pos_id),
+        )
+        conn.commit()
+        conn.close()
+
+        logger.info(
+            "Added to position #%s: %s %s +%.4f @ %.2f, new avg %.2f, TP @ %.2f",
+            pos_id,
+            symbol,
+            existing_side,
+            quantity,
+            add_price,
+            blended_entry,
+            target_price,
+        )
+        return {
+            "id": pos_id,
+            "symbol": symbol,
+            "side": existing_side,
+            "entry_date": existing_entry_date or add_date,
+            "entry_price": blended_entry,
+            "quantity": new_qty,
+            "added_quantity": quantity,
+            "target_price": target_price,
+        }
 
     def check_and_close_positions(self, check_date=None):
         """
