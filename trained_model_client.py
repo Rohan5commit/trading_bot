@@ -3,6 +3,7 @@ import logging
 import os
 import re
 from typing import List, Optional
+from urllib.parse import urlparse
 
 import requests
 
@@ -82,7 +83,7 @@ class TrainedModelTradeClient:
         headers = {"Content-Type": "application/json", "Accept": "application/json"}
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
-        response = requests.post(self.inference_url, json=payload, headers=headers, timeout=self.timeout_seconds)
+        response = requests.post(self._prediction_url(), json=payload, headers=headers, timeout=self.timeout_seconds)
         response.raise_for_status()
         data = response.json()
         self.last_model_used = data.get("model") or data.get("model_used") or self.model_identifier
@@ -93,6 +94,18 @@ class TrainedModelTradeClient:
         if signal is not None:
             return [signal]
         return []
+
+    def _prediction_url(self) -> str:
+        url = (self.inference_url or "").strip()
+        if not url:
+            return url
+        parsed = urlparse(url)
+        path = (parsed.path or "").rstrip("/")
+        if path.endswith("/predict_trade_candidates") or path == "/predict_trade_candidates":
+            return url
+        if not path or path == "/":
+            return url.rstrip("/") + "/predict_trade_candidates"
+        return url
 
     def _normalize_prediction(self, raw) -> Optional[dict]:
         parsed = raw

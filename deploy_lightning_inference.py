@@ -42,6 +42,31 @@ ENV_KEYS = (
 )
 
 
+def _patch_lightning_dispatch_compat() -> None:
+    # Lightning 2.3.2 can pass an unsupported `app_id` kwarg into older
+    # lightning-cloud OpenAPI clients. Drop it so cloud dispatch works.
+    try:
+        from lightning_cloud.openapi.api.lightningapp_instance_service_api import LightningappInstanceServiceApi
+    except Exception:
+        return
+
+    orig = LightningappInstanceServiceApi.lightningapp_instance_service_list_lightningapp_instances
+    orig_with_http_info = LightningappInstanceServiceApi.lightningapp_instance_service_list_lightningapp_instances_with_http_info
+
+    def patched(self, project_id, **kwargs):
+        kwargs.pop("app_id", None)
+        return orig(self, project_id, **kwargs)
+
+    def patched_with_http_info(self, project_id, **kwargs):
+        kwargs.pop("app_id", None)
+        return orig_with_http_info(self, project_id, **kwargs)
+
+    LightningappInstanceServiceApi.lightningapp_instance_service_list_lightningapp_instances = patched
+    LightningappInstanceServiceApi.lightningapp_instance_service_list_lightningapp_instances_with_http_info = (
+        patched_with_http_info
+    )
+
+
 def _collect_env() -> dict[str, str]:
     env_vars: dict[str, str] = {}
     for key in ENV_KEYS:
@@ -60,6 +85,7 @@ def main() -> None:
 
     auth_env = ensure_auth_env()
     set_process_env(auth_env)
+    _patch_lightning_dispatch_compat()
     client, project = get_client_and_project()
 
     entrypoint = ROOT_DIR / "lightning_trained_model_app.py"

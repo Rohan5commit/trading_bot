@@ -99,3 +99,11 @@ python run_ai_trading_smoke.py
 - The current deployment target is Lightning AI CPU.
 - The Lightning inference app can either mount a ready adapter directory or download a `tar.gz` / `.zip` archive via `TRAINED_MODEL_ADAPTER_ARCHIVE_URL`.
 - The core bot and AI bot remain logically separate even though they now live in one combined repo.
+
+## Lightning Account
+
+- The funded Lightning deployment account for this repo is `Rohan San`
+- Username: `rohansanthoshkumar1`
+- Email: `rohan.santhoshkumar1@gmail.com`
+- The repo should use the GitHub secrets `LIGHTNING_USERNAME`, `LIGHTNING_API_KEY`, and `LIGHTNING_USER_ID` for that account
+- Do not switch deployment to the separate `rohansanthoshkumar` account unless explicitly told to do so

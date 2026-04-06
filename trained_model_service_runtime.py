@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import inspect
 import os
 from pathlib import Path
 import re
@@ -28,6 +29,23 @@ _TOKENIZER = None
 _TORCH = None
 _ADAPTER_DIR = None
 _LOAD_ERROR = None
+
+
+def _patch_peft_lora_config_compat() -> None:
+    from peft.tuners.lora.config import LoraConfig
+
+    if getattr(LoraConfig, "_trading_bot_compat_patched", False):
+        return
+
+    original_init = LoraConfig.__init__
+    allowed = set(inspect.signature(original_init).parameters)
+
+    def compat_init(self, *args, **kwargs):
+        filtered = {key: value for key, value in kwargs.items() if key in allowed}
+        return original_init(self, *args, **filtered)
+
+    LoraConfig.__init__ = compat_init
+    LoraConfig._trading_bot_compat_patched = True
 
 
 def _cache_root() -> Path:
@@ -178,6 +196,7 @@ def _load_runtime():
         from transformers import AutoModelForCausalLM, AutoTokenizer
 
         torch.set_num_threads(CPU_THREADS)
+        _patch_peft_lora_config_compat()
         adapter_dir = _ensure_adapter_dir()
         tokenizer = AutoTokenizer.from_pretrained(BASE_MODEL, trust_remote_code=True)
         if tokenizer.pad_token is None:
@@ -288,7 +307,10 @@ def predict_trade_candidates(payload: Dict[str, Any]) -> dict[str, Any]:
     candidates = _normalize_candidates(payload)
     if not candidates:
         raise HTTPException(status_code=400, detail="No candidate payload supplied.")
-    signals = [_predict_one(candidate) for candidate in candidates]
+    try:
+        signals = [_predict_one(candidate) for candidate in candidates]
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
     return {
         "model": MODEL_NAME,
         "model_used": MODEL_NAME,
