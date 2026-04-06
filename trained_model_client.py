@@ -2,7 +2,7 @@ import json
 import logging
 import os
 import re
-from typing import Optional
+from typing import List, Optional
 
 import requests
 
@@ -33,7 +33,7 @@ class TrainedModelTradeClient:
         self.api_key_env = str(model_cfg.get("api_key_env", "") or "").strip()
         self.api_key = os.getenv(self.api_key_env).strip() if self.api_key_env and os.getenv(self.api_key_env) else ""
         self.timeout_seconds = int(model_cfg.get("timeout_seconds", 60) or 60)
-        self.model_name = str(model_cfg.get("model_name", "trained-trading-model") or "trained-trading-model").strip()
+        self.model_name = str(model_cfg.get("model_name", "quant-trained-trading-model") or "quant-trained-trading-model").strip()
         self.last_error = None
         self.last_model_used = None
 
@@ -51,19 +51,32 @@ class TrainedModelTradeClient:
         return True
 
     def predict_candidate(self, candidate: dict) -> Optional[dict]:
+        results = self.predict_candidates([candidate])
+        return results[0] if results else None
+
+    def predict_candidates(self, candidates: List[dict]) -> List[Optional[dict]]:
         if not self.is_ready():
-            return None
+            return [None for _ in list(candidates or [])]
+        payload_candidates = [dict(c or {}) for c in list(candidates or []) if isinstance(c, dict)]
+        if not payload_candidates:
+            return []
         try:
-            raw = self._predict_http(candidate)
+            raw_signals = self._predict_batch_http(payload_candidates)
         except Exception as exc:
             self.last_error = str(exc)
-            logger.warning("Trained model inference failed for %s: %s", candidate.get("symbol"), exc)
-            return None
-        return self._normalize_prediction(raw)
+            logger.warning("Trained model batch inference failed: %s", exc)
+            return [None for _ in payload_candidates]
 
-    def _predict_http(self, candidate: dict):
+        out = []
+        for signal in raw_signals:
+            out.append(self._normalize_prediction(signal))
+        while len(out) < len(payload_candidates):
+            out.append(None)
+        return out[: len(payload_candidates)]
+
+    def _predict_batch_http(self, candidates: List[dict]):
         payload = {
-            "candidate": candidate,
+            "candidates": candidates,
             "task": "trade_signal_classification",
         }
         headers = {"Content-Type": "application/json", "Accept": "application/json"}
@@ -73,9 +86,13 @@ class TrainedModelTradeClient:
         response.raise_for_status()
         data = response.json()
         self.last_model_used = data.get("model") or data.get("model_used") or self.model_identifier
-        if isinstance(data.get("signal"), dict):
-            return data["signal"]
-        return data
+        signals = data.get("signals")
+        if isinstance(signals, list):
+            return signals
+        signal = data.get("signal")
+        if signal is not None:
+            return [signal]
+        return []
 
     def _normalize_prediction(self, raw) -> Optional[dict]:
         parsed = raw

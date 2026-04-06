@@ -153,8 +153,8 @@ def propose_trades_with_llm(config, candidates, max_positions=10, allow_shorts=T
 
     predictions = []
     failures = []
-    for candidate in prompt_candidates:
-        prediction = client.predict_candidate(candidate)
+    batch_predictions = client.predict_candidates(prompt_candidates)
+    for candidate, prediction in zip(prompt_candidates, batch_predictions):
         if prediction is None:
             failures.append(
                 {
