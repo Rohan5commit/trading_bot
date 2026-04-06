@@ -1,0 +1,14 @@
+output_dir: /data/raw_aux_public
+sources:
+  - repo_id: zeroshot/twitter-financial-news-sentiment
+    repo_type: dataset
+  - repo_id: ashraq/financial-news-articles
+    repo_type: dataset
+  - repo_id: danidanou/Bloomberg_Financial_News
+    repo_type: dataset
+  - repo_id: kapilrao/SEC_filings_1994_2024
+    repo_type: dataset
+  - repo_id: mjw/stock_market_tweets
+    repo_type: dataset
+  - repo_id: jyanimaulik/yahoo_finance_stockmarket_news
+    repo_type: dataset

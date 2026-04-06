@@ -1,0 +1,45 @@
+project: train-once-quant-platform
+run_name: lora_liquid_v1
+
+data:
+  corpus_text_path: /data/corpus_hf_liquid/text_corpus.jsonl
+  train_text_path: /data/corpus_hf_liquid/train_text.jsonl
+  val_text_path: /data/corpus_hf_liquid/val_text.jsonl
+  corpus_tabular_path: /data/corpus_hf_liquid/tabular.parquet
+  train_start: '2010-01-01'
+  train_end: '2021-12-31'
+  val_start: '2022-01-01'
+  val_end: '2022-12-31'
+
+model:
+  base_model: Qwen/Qwen2.5-7B-Instruct
+  max_seq_length: 1024
+  use_4bit: true
+  lora_rank: 16
+  lora_alpha: 32
+  lora_dropout: 0.05
+  target_modules: [q_proj, k_proj, v_proj, o_proj, gate_proj, up_proj]
+
+train:
+  per_device_train_batch_size: 4
+  per_device_eval_batch_size: 4
+  gradient_accumulation_steps: 8
+  learning_rate: 0.0002
+  warmup_ratio: 0.03
+  epochs: 1
+  scheduler: cosine
+  bf16: true
+  gradient_checkpointing: true
+  packing: true
+  logging_steps: 20
+  eval_steps: 500
+  save_steps: 500
+  max_steps: 5000
+  max_train_samples: 600000
+  max_eval_samples: 20000
+  output_dir: artifacts/lora_adapter
+  seed: 42
+
+gpu:
+  type: L40S
+  max_hours: 4

@@ -1,0 +1,30 @@
+name: Upload progress snapshot
+
+on:
+  workflow_dispatch:
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: pip install -r requirements-data.txt
+      - name: Set Modal tokens
+        env:
+          MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
+          MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
+        run: |
+          modal token set --token-id "$MODAL_TOKEN_ID" --token-secret "$MODAL_TOKEN_SECRET"
+      - name: Fetch progress snapshot
+        run: python scripts/modal_progress_snapshot.py --summary corpus_summary.json --progress progress.json
+      - name: Upload snapshot
+        uses: actions/upload-artifact@v4
+        with:
+          name: corpus-progress-snapshot
+          path: |
+            corpus_summary.json
+            progress.json

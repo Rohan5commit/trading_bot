@@ -1,0 +1,139 @@
+name: Auto-chain OCI CPU Chunks
+
+permissions:
+  contents: read
+  actions: write
+
+on:
+  workflow_run:
+    workflows: ["Launch OCI CPU VM (Time-Boxed)"]
+    types: [completed]
+  workflow_dispatch:
+
+concurrency:
+  group: oci-cpu-chain
+  cancel-in-progress: false
+
+jobs:
+  chain:
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install CLI deps
+        run: python -m pip install --upgrade oci-cli pyyaml
+      - name: Configure OCI CLI
+        env:
+          OCI_TENANCY_OCID: ${{ secrets.OCI_TENANCY_OCID }}
+          OCI_USER_OCID: ${{ secrets.OCI_USER_OCID }}
+          OCI_FINGERPRINT: ${{ secrets.OCI_FINGERPRINT }}
+          OCI_REGION: ${{ secrets.OCI_REGION }}
+          OCI_PRIVATE_KEY: ${{ secrets.OCI_PRIVATE_KEY }}
+        run: |
+          mkdir -p ~/.oci
+          printf "%s" "$OCI_PRIVATE_KEY" > ~/.oci/oci_api_key.pem
+          chmod 600 ~/.oci/oci_api_key.pem
+          printf "[DEFAULT]\nuser=%s\nfingerprint=%s\ntenancy=%s\nregion=%s\nkey_file=~/.oci/oci_api_key.pem\n" \
+            "$OCI_USER_OCID" "$OCI_FINGERPRINT" "$OCI_TENANCY_OCID" "$OCI_REGION" > ~/.oci/config
+      - name: Determine next chunk
+        id: next
+        env:
+          CHECKPOINT_S3_BUCKET: ${{ secrets.CHECKPOINT_S3_BUCKET }}
+          CHECKPOINT_S3_PREFIX: ${{ secrets.CHECKPOINT_S3_PREFIX }}
+          CONFIG_PATH: configs/data_large.yaml
+          CHUNK_SIZE: "50"
+        run: |
+          python - <<'PY'
+          import json
+          import math
+          import os
+          import re
+          import subprocess
+          import yaml
+
+          cfg_path = os.environ.get("CONFIG_PATH", "configs/data_large.yaml")
+          with open(cfg_path, "r") as fh:
+              cfg = yaml.safe_load(fh) or {}
+
+          max_tickers = int(cfg.get("max_tickers") or 0)
+          chunk_size = int(os.environ.get("CHUNK_SIZE") or cfg.get("chunk_size") or 50)
+          max_chunks = math.ceil(max_tickers / chunk_size) if max_tickers else 0
+
+          prefix = (os.environ.get("CHECKPOINT_S3_PREFIX") or "train-once").strip("/")
+          bucket = os.environ["CHECKPOINT_S3_BUCKET"]
+          ns = subprocess.check_output(
+              ["oci", "os", "ns", "get", "--query", "data", "--raw-output"],
+              text=True,
+          ).strip()
+
+          out = subprocess.check_output(
+              [
+                  "oci",
+                  "os",
+                  "object",
+                  "list",
+                  "--namespace",
+                  ns,
+                  "--bucket-name",
+                  bucket,
+                  "--prefix",
+                  f"{prefix}/reports/chunk_summary_",
+                  "--all",
+                  "--query",
+                  "data[].name",
+                  "--output",
+                  "json",
+              ],
+              text=True,
+          ).strip()
+
+          names = json.loads(out) if out else []
+          pattern = re.compile(r"chunk_summary_(\d+)\\.json$")
+          done = []
+          for name in names:
+              match = pattern.search(name)
+              if match:
+                  done.append(int(match.group(1)))
+
+          next_chunk = 0 if not done else max(done) + 1
+          should_launch = max_chunks == 0 or next_chunk < max_chunks
+
+          with open(os.environ["GITHUB_OUTPUT"], "a") as fh:
+              fh.write(f"next_chunk={next_chunk}\n")
+              fh.write(f"chunk_size={chunk_size}\n")
+              fh.write(f"max_chunks={max_chunks}\n")
+              fh.write(f"should_launch={'true' if should_launch else 'false'}\n")
+          PY
+      - name: Dispatch next chunk
+        if: ${{ steps.next.outputs.should_launch == 'true' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OWNER: ${{ github.repository_owner }}
+          REPO: ${{ github.event.repository.name }}
+          NEXT_CHUNK: ${{ steps.next.outputs.next_chunk }}
+          CHUNK_SIZE: ${{ steps.next.outputs.chunk_size }}
+        run: |
+          payload=$(cat <<EOF
+          {
+            "ref": "main",
+            "inputs": {
+              "chunk_id": "${NEXT_CHUNK}",
+              "chunk_size": "${CHUNK_SIZE}",
+              "max_hours": "6",
+              "config": "configs/data_large.yaml"
+            }
+          }
+          EOF
+          )
+          curl -sS -X POST \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/${OWNER}/${REPO}/actions/workflows/oci-cpu-launch-dispatch.yml/dispatches \
+            -d "${payload}"
+      - name: Stop chaining (no more chunks)
+        if: ${{ steps.next.outputs.should_launch != 'true' }}
+        run: |
+          echo "No more chunks to launch."

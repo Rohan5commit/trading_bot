@@ -109,6 +109,12 @@ class TrainedModelTradeClient:
             self.last_error = "Trained model response could not be parsed"
             return None
         label = str(parsed.get("label") or parsed.get("signal") or "").strip().upper()
+        fallback_text = str(parsed.get("reason") or parsed.get("notes") or raw_text or "").strip()
+        fallback_match = _LABEL_RE.search(fallback_text)
+        if label not in LABEL_TO_SCORE and fallback_match:
+            label = fallback_match.group(1).upper()
+        elif label == "NEUTRAL" and fallback_match and fallback_match.group(1).upper() != "NEUTRAL":
+            label = fallback_match.group(1).upper()
         if label not in LABEL_TO_SCORE:
             self.last_error = f"Unsupported trained model label: {label or 'missing'}"
             return None

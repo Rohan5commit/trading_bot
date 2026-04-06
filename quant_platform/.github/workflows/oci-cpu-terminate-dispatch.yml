@@ -1,0 +1,37 @@
+name: Terminate OCI VM
+
+on:
+  workflow_dispatch:
+    inputs:
+      instance_id:
+        description: "OCI instance OCID"
+        required: true
+
+jobs:
+  terminate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install OCI CLI
+        run: python -m pip install --upgrade oci-cli
+      - name: Configure OCI CLI
+        env:
+          OCI_TENANCY_OCID: ${{ secrets.OCI_TENANCY_OCID }}
+          OCI_USER_OCID: ${{ secrets.OCI_USER_OCID }}
+          OCI_FINGERPRINT: ${{ secrets.OCI_FINGERPRINT }}
+          OCI_REGION: ${{ secrets.OCI_REGION }}
+          OCI_PRIVATE_KEY: ${{ secrets.OCI_PRIVATE_KEY }}
+        run: |
+          mkdir -p ~/.oci
+          printf "%s" "$OCI_PRIVATE_KEY" > ~/.oci/oci_api_key.pem
+          chmod 600 ~/.oci/oci_api_key.pem
+          printf "[DEFAULT]\nuser=%s\nfingerprint=%s\ntenancy=%s\nregion=%s\nkey_file=~/.oci/oci_api_key.pem\n" \
+            "$OCI_USER_OCID" "$OCI_FINGERPRINT" "$OCI_TENANCY_OCID" "$OCI_REGION" > ~/.oci/config
+      - name: Terminate instance
+        run: |
+          oci compute instance terminate \
+            --instance-id "${{ inputs.instance_id }}" \
+            --preserve-boot-volume false \
+            --force

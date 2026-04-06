@@ -1,0 +1,54 @@
+name: Merge Corpus Chunks (Modal CPU)
+
+on:
+  workflow_dispatch:
+    inputs:
+      cpu:
+        description: "Modal CPU"
+        required: true
+        default: "16"
+      memory:
+        description: "Modal memory (MB)"
+        required: true
+        default: "65536"
+      config:
+        description: "Config path"
+        required: true
+        default: "configs/data_large.yaml"
+
+jobs:
+  merge:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: pip install -r requirements-data.txt
+      - name: Set Modal tokens
+        env:
+          MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
+          MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
+        run: |
+          modal token set --token-id "$MODAL_TOKEN_ID" --token-secret "$MODAL_TOKEN_SECRET"
+      - name: Merge chunks on Modal CPU
+        env:
+          CHECKPOINT_S3_BUCKET: ${{ secrets.CHECKPOINT_S3_BUCKET }}
+          CHECKPOINT_S3_ACCESS_KEY: ${{ secrets.CHECKPOINT_S3_ACCESS_KEY }}
+          CHECKPOINT_S3_SECRET_KEY: ${{ secrets.CHECKPOINT_S3_SECRET_KEY }}
+          CHECKPOINT_S3_REGION: ${{ secrets.CHECKPOINT_S3_REGION }}
+          CHECKPOINT_S3_ENDPOINT: ${{ secrets.CHECKPOINT_S3_ENDPOINT }}
+          CHECKPOINT_S3_PREFIX: ${{ secrets.CHECKPOINT_S3_PREFIX }}
+          CHECKPOINT_S3_USE_PATH_STYLE: ${{ secrets.CHECKPOINT_S3_USE_PATH_STYLE }}
+        run: >-
+          python scripts/modal_merge_corpus.py
+          --config ${{ inputs.config }}
+          --cpu ${{ inputs.cpu }}
+          --memory ${{ inputs.memory }}
+          --summary merge_summary.json
+      - name: Upload merge summary
+        uses: actions/upload-artifact@v4
+        with:
+          name: merge-summary
+          path: merge_summary.json

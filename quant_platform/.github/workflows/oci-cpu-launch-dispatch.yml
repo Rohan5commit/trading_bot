@@ -1,0 +1,243 @@
+name: Launch OCI CPU VM (Time-Boxed)
+
+on:
+  workflow_dispatch:
+    inputs:
+      display_name:
+        description: "Instance display name"
+        required: true
+        default: "quant-cpu-pipeline"
+      shape:
+        description: "OCI shape"
+        required: true
+        default: "VM.Standard.E4.Flex"
+      ocpus:
+        description: "OCPUs (for Flex)"
+        required: true
+        default: "8"
+      memory_gb:
+        description: "Memory GB (for Flex)"
+        required: true
+        default: "64"
+      max_hours:
+        description: "Auto-shutdown after N hours"
+        required: true
+        default: "6"
+      chunk_id:
+        description: "Chunk index (0-based)"
+        required: true
+        default: "0"
+      chunk_size:
+        description: "Tickers per chunk"
+        required: true
+        default: "50"
+      config:
+        description: "Config path"
+        required: true
+        default: "configs/data_large.yaml"
+
+jobs:
+  launch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install CLI deps
+        run: python -m pip install --upgrade oci-cli boto3
+      - name: Configure OCI CLI
+        env:
+          OCI_TENANCY_OCID: ${{ secrets.OCI_TENANCY_OCID }}
+          OCI_USER_OCID: ${{ secrets.OCI_USER_OCID }}
+          OCI_FINGERPRINT: ${{ secrets.OCI_FINGERPRINT }}
+          OCI_REGION: ${{ secrets.OCI_REGION }}
+          OCI_PRIVATE_KEY: ${{ secrets.OCI_PRIVATE_KEY }}
+        run: |
+          mkdir -p ~/.oci
+          printf "%s" "$OCI_PRIVATE_KEY" > ~/.oci/oci_api_key.pem
+          chmod 600 ~/.oci/oci_api_key.pem
+          printf "[DEFAULT]\nuser=%s\nfingerprint=%s\ntenancy=%s\nregion=%s\nkey_file=~/.oci/oci_api_key.pem\n" \
+            "$OCI_USER_OCID" "$OCI_FINGERPRINT" "$OCI_TENANCY_OCID" "$OCI_REGION" > ~/.oci/config
+      - name: Bundle repo and upload (OCI native)
+        env:
+          CHECKPOINT_S3_BUCKET: ${{ secrets.CHECKPOINT_S3_BUCKET }}
+          CHECKPOINT_S3_PREFIX: ${{ secrets.CHECKPOINT_S3_PREFIX }}
+          OCI_REGION: ${{ secrets.OCI_REGION }}
+        run: |
+          python - <<'PY'
+          import os
+          import tarfile
+          from pathlib import Path
+          import subprocess
+          import shlex
+
+          root = Path(".").resolve()
+          bundle = Path("/tmp/repo.tar.gz")
+          include = ["src", "scripts", "configs", "requirements-data.txt", "requirements.txt", "README.md"]
+          with tarfile.open(bundle, "w:gz") as tar:
+              for item in include:
+                  path = root / item
+                  if path.exists():
+                      tar.add(path, arcname=item)
+
+          bucket = os.environ["CHECKPOINT_S3_BUCKET"]
+          prefix = (os.environ.get("CHECKPOINT_S3_PREFIX") or "train-once").strip("/")
+          key = f"{prefix}/bootstrap/repo.tar.gz"
+
+          ns = subprocess.check_output(["oci", "os", "ns", "get", "--query", "data", "--raw-output"], text=True).strip()
+          subprocess.check_call([
+              "oci", "os", "object", "put",
+              "--namespace", ns,
+              "--bucket-name", bucket,
+              "--name", key,
+              "--file", str(bundle),
+              "--force",
+          ])
+
+          from datetime import datetime, timedelta, timezone
+          expires = (datetime.now(timezone.utc) + timedelta(hours=24)).isoformat().replace("+00:00", "Z")
+          access_uri = subprocess.check_output([
+              "oci", "os", "preauth-request", "create",
+              "--namespace", ns,
+              "--bucket-name", bucket,
+              "--name", f"repo-bootstrap-{int(datetime.now().timestamp())}",
+              "--object-name", key,
+              "--access-type", "ObjectRead",
+              "--time-expires", expires,
+              "--query", 'data."access-uri"',
+              "--raw-output",
+          ], text=True).strip()
+
+          write_uri = subprocess.check_output([
+              "oci", "os", "preauth-request", "create",
+              "--namespace", ns,
+              "--bucket-name", bucket,
+              "--name", f"train-once-write-{int(datetime.now().timestamp())}",
+              "--access-type", "AnyObjectWrite",
+              "--time-expires", expires,
+              "--query", 'data."access-uri"',
+              "--raw-output",
+          ], text=True).strip()
+
+          region = os.environ.get("OCI_REGION") or "ap-singapore-1"
+          base = f"https://objectstorage.{region}.oraclecloud.com"
+          Path("/tmp/repo_url.txt").write_text(f"{base}{access_uri}")
+          Path("/tmp/par_write_url.txt").write_text(f"{base}{write_uri}")
+          print(key)
+          PY
+          echo "REPO_TARBALL_URL=$(cat /tmp/repo_url.txt)" >> "$GITHUB_ENV"
+          echo "PAR_WRITE_URL=$(cat /tmp/par_write_url.txt)" >> "$GITHUB_ENV"
+      - name: Generate user-data
+        env:
+          REPO_TARBALL_URL: ${{ env.REPO_TARBALL_URL }}
+          PAR_WRITE_URL: ${{ env.PAR_WRITE_URL }}
+          SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}
+          MAX_HOURS: ${{ inputs.max_hours }}
+          CHUNK_ID: ${{ inputs.chunk_id }}
+          CHUNK_SIZE: ${{ inputs.chunk_size }}
+          CONFIG_PATH: ${{ inputs.config }}
+          CHECKPOINT_S3_PREFIX: ${{ secrets.CHECKPOINT_S3_PREFIX }}
+          OCI_SSH_PUBLIC_KEY: ${{ secrets.OCI_SSH_PUBLIC_KEY }}
+        run: |
+          python - <<'PY'
+          import os
+          import shlex
+          minutes = int(os.environ.get("MAX_HOURS", "6")) * 60
+          chunk_id = os.environ.get("CHUNK_ID", "0")
+          chunk_size = os.environ.get("CHUNK_SIZE", "50")
+          config = os.environ.get("CONFIG_PATH", "configs/data_large.yaml")
+          repo_url = os.environ["REPO_TARBALL_URL"]
+          par_write_url = os.environ["PAR_WRITE_URL"]
+          sec_user_agent = os.environ.get("SEC_USER_AGENT", "")
+          prefix = (os.environ.get("CHECKPOINT_S3_PREFIX") or "train-once").strip("/")
+
+          lines = [
+              "#!/bin/bash",
+              "set -euo pipefail",
+              "exec > /var/log/quant_bootstrap.log 2>&1",
+              f"shutdown -h +{minutes} || true",
+              f"PAR_WRITE_URL='{par_write_url}'",
+              f"CHUNK_ID='{chunk_id}'",
+              f"progress() {{ msg=\"$1\"; ts=$(date -u +%Y-%m-%dT%H:%M:%SZ); echo \"{{\\\"timestamp\\\":\\\"$ts\\\",\\\"chunk_id\\\":\\\"$CHUNK_ID\\\",\\\"status\\\":\\\"$msg\\\"}}\" > /tmp/progress.json; curl -sS -X PUT --upload-file /tmp/progress.json \"$PAR_WRITE_URL\"\"{prefix}/progress/heartbeat_$CHUNK_ID.json\"; }}",
+              "progress booted",
+              "wait_apt() { while fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1 || fuser /var/lib/apt/lists/lock >/dev/null 2>&1; do sleep 5; done }",
+              "systemctl stop apt-daily.service apt-daily-upgrade.service || true",
+              "systemctl stop apt-daily.timer apt-daily-upgrade.timer || true",
+              "wait_apt",
+              "apt-get update",
+              "wait_apt",
+              "apt-get install -y python3 python3-venv python3-pip curl",
+              "progress deps_installed",
+              "mkdir -p /opt/quant",
+              "cd /opt/quant",
+              f"curl -L \"{repo_url}\" -o /tmp/repo.tar.gz",
+              "tar -xzf /tmp/repo.tar.gz -C /opt/quant",
+              "progress repo_ready",
+              "python3 -m venv /opt/quant/.venv",
+              "source /opt/quant/.venv/bin/activate",
+              "pip install -U pip",
+              "pip install -r /opt/quant/requirements-data.txt",
+              "progress pip_ready",
+              "export CHECKPOINT_DISABLE=1",
+              f"export PAR_WRITE_URL=\"{par_write_url}\"",
+              f"export CHUNK_ID=\"{chunk_id}\"",
+              f"export SEC_USER_AGENT={shlex.quote(sec_user_agent)}" if sec_user_agent else "true",
+              f"python /opt/quant/scripts/gha_build_chunk.py --config \"{config}\" --chunk-id {chunk_id} --chunk-size {chunk_size} --summary /opt/quant/chunk_summary.json",
+              "progress chunk_done",
+              "RAW=/opt/quant/data/processed/chunks/features_raw_chunk_$CHUNK_ID.parquet",
+              "NORM=/opt/quant/data/processed/chunks/features_norm_chunk_$CHUNK_ID.parquet",
+              "TAB=/opt/quant/data/corpus/chunks/tabular_chunk_$CHUNK_ID.parquet",
+              "PROG=/opt/quant/data/processed/progress.json",
+              "SUM=/opt/quant/chunk_summary.json",
+              "upload() { file=\"$1\" key=\"$2\"; if [ -f \"$file\" ]; then curl -sS -X PUT --upload-file \"$file\" \"${PAR_WRITE_URL}${key}\"; fi }",
+              f"upload \"$RAW\" \"{prefix}/features/raw_chunk_$CHUNK_ID.parquet\"",
+              f"upload \"$NORM\" \"{prefix}/features/norm_chunk_$CHUNK_ID.parquet\"",
+              f"upload \"$TAB\" \"{prefix}/corpus/chunks/tabular_chunk_$CHUNK_ID.parquet\"",
+              f"upload \"$PROG\" \"{prefix}/progress/progress.json\"",
+              f"upload \"$SUM\" \"{prefix}/reports/chunk_summary_$CHUNK_ID.json\"",
+              "progress upload_done",
+          ]
+          with open("/tmp/oci_user_data.txt", "w") as f:
+              f.write("\n".join(lines) + "\n")
+          PY
+          base64 < /tmp/oci_user_data.txt > /tmp/oci_user_data.b64
+      - name: Launch instance
+        env:
+          OCI_AD: ${{ secrets.OCI_AD }}
+          OCI_COMPARTMENT_OCID: ${{ secrets.OCI_COMPARTMENT_OCID }}
+          OCI_SUBNET_OCID: ${{ secrets.OCI_SUBNET_OCID }}
+          OCI_IMAGE_OCID: ${{ secrets.OCI_IMAGE_OCID }}
+          MAX_HOURS: ${{ inputs.max_hours }}
+          CHUNK_ID: ${{ inputs.chunk_id }}
+          CHUNK_SIZE: ${{ inputs.chunk_size }}
+          CONFIG_PATH: ${{ inputs.config }}
+          OCI_SSH_PUBLIC_KEY: ${{ secrets.OCI_SSH_PUBLIC_KEY }}
+        run: |
+          metadata_json=$(python - <<'PY'
+          import json, os, pathlib
+          user_data = "".join(pathlib.Path("/tmp/oci_user_data.b64").read_text().split())
+          ssh_key = os.environ.get("OCI_SSH_PUBLIC_KEY", "").strip()
+          metadata = {"user_data": user_data}
+          if ssh_key:
+              metadata["ssh_authorized_keys"] = ssh_key
+          print(json.dumps(metadata))
+          PY
+          )
+          oci compute instance launch \
+            --availability-domain "$OCI_AD" \
+            --compartment-id "$OCI_COMPARTMENT_OCID" \
+            --subnet-id "$OCI_SUBNET_OCID" \
+            --image-id "$OCI_IMAGE_OCID" \
+            --shape "${{ inputs.shape }}" \
+            --shape-config "{\"ocpus\":${{ inputs.ocpus }},\"memoryInGBs\":${{ inputs.memory_gb }}}" \
+            --display-name "${{ inputs.display_name }}" \
+            --assign-public-ip true \
+            --metadata "$metadata_json" \
+            --query "data.id" \
+            --raw-output | tee /tmp/instance_id.txt
+      - name: Upload instance id
+        uses: actions/upload-artifact@v4
+        with:
+          name: oci-instance-id
+          path: /tmp/instance_id.txt

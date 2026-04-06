@@ -1,0 +1,246 @@
+name: GitHub CPU Auto-Resume Loop
+
+permissions:
+  contents: read
+  actions: write
+
+on:
+  workflow_dispatch:
+    inputs:
+      config_path:
+        description: Path to the shared run config file
+        required: false
+        default: configs/lightning_run.yaml
+      resume_count:
+        description: Internal restart counter
+        required: false
+        default: "0"
+      slice_minutes:
+        description: Max work time per GitHub runner slice
+        required: false
+        default: "230"
+
+concurrency:
+  group: github-cpu-autoresume
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 355
+    env:
+      CHECKPOINT_DIR: .lightning-checkpoints
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install bootstrap dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install PyYAML
+      - name: Load shared run config
+        env:
+          CONFIG_PATH: ${{ github.event.inputs.config_path }}
+        run: |
+          export CONFIG_PATH="${CONFIG_PATH:-configs/lightning_run.yaml}"
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          import yaml
+
+          cfg = yaml.safe_load(Path(os.environ["CONFIG_PATH"]).read_text()) or {}
+          tracked_paths = [str(item) for item in (cfg.get("tracked_paths") or []) if str(item).strip()]
+          app_env = cfg.get("app_env") or {}
+
+          env_path = Path(os.environ["GITHUB_ENV"])
+          with env_path.open("a") as fh:
+              fh.write(f"RUN_COMMAND<<__RUN_COMMAND__\n{cfg['command']}\n__RUN_COMMAND__\n")
+              fh.write(f"WORK_REQUIREMENTS_FILE={cfg.get('work_requirements_file') or 'requirements-data.txt'}\n")
+              fh.write(f"CHECKPOINT_DIR={cfg.get('checkpoint_dir') or '.lightning-checkpoints'}\n")
+              fh.write(f"SAVE_EVERY_SECONDS={int(cfg.get('save_every_seconds') or 14400)}\n")
+              fh.write(f"GRACE_PERIOD_SECONDS={int(cfg.get('grace_period_seconds') or 300)}\n")
+              fh.write(f"MAX_RESTARTS={int(cfg.get('max_restarts') or 16)}\n")
+              fh.write(f"TRACKED_PATHS_JSON={json.dumps(tracked_paths)}\n")
+              fh.write(f"APP_ENV_JSON={json.dumps(app_env)}\n")
+              fh.write(f"CHECKPOINT_ARTIFACT_NAME=github-cpu-autoresume-checkpoint\n")
+          PY
+      - name: Install dependencies
+        run: |
+          pip install -r "$WORK_REQUIREMENTS_FILE"
+      - name: Export configured env vars
+        env:
+          APP_ENV_JSON: ${{ env.APP_ENV_JSON }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          env_path = Path(os.environ["GITHUB_ENV"])
+          app_env = json.loads(os.environ.get("APP_ENV_JSON") or "{}")
+          with env_path.open("a") as fh:
+              for key, value in app_env.items():
+                  fh.write(f"{key}<<__APP_ENV__\n{value}\n__APP_ENV__\n")
+          PY
+      - name: Restore latest checkpoint artifact
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          CHECKPOINT_ARTIFACT_NAME: ${{ env.CHECKPOINT_ARTIFACT_NAME }}
+          CHECKPOINT_DIR: ${{ env.CHECKPOINT_DIR }}
+        run: |
+          set -euo pipefail
+          mkdir -p "${CHECKPOINT_DIR}"
+          gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts?per_page=100" > /tmp/github-artifacts.json
+          artifact_id=$(python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          payload = json.loads(Path("/tmp/github-artifacts.json").read_text())
+          artifacts = [
+              item
+              for item in payload.get("artifacts", [])
+              if item.get("name") == os.environ["CHECKPOINT_ARTIFACT_NAME"] and not item.get("expired")
+          ]
+          artifacts.sort(key=lambda item: item.get("created_at", ""), reverse=True)
+          print(artifacts[0]["id"] if artifacts else "")
+          PY
+          )
+          if [ -n "${artifact_id}" ]; then
+            gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${artifact_id}/zip" > /tmp/github-cpu-checkpoint.zip
+            unzip -oq /tmp/github-cpu-checkpoint.zip -d .
+            echo "Restored checkpoint artifact ${artifact_id}"
+          else
+            echo "No checkpoint artifact found."
+          fi
+      - name: Run checkpointed command
+        id: run_slice
+        continue-on-error: true
+        env:
+          RUN_COMMAND: ${{ env.RUN_COMMAND }}
+          CHECKPOINT_DIR: ${{ env.CHECKPOINT_DIR }}
+          SAVE_EVERY_SECONDS: ${{ env.SAVE_EVERY_SECONDS }}
+          GRACE_PERIOD_SECONDS: ${{ env.GRACE_PERIOD_SECONDS }}
+          TRACKED_PATHS_JSON: ${{ env.TRACKED_PATHS_JSON }}
+          SLICE_MINUTES: ${{ github.event.inputs.slice_minutes }}
+        run: |
+          set +e
+          mapfile -t tracked_paths < <(python - <<'PY'
+          import json
+          import os
+          for item in json.loads(os.environ["TRACKED_PATHS_JSON"]):
+              print(item)
+          PY
+          )
+
+          tracked_args=()
+          for path in "${tracked_paths[@]}"; do
+            tracked_args+=(--tracked-path "$path")
+          done
+
+          timeout --signal=TERM --kill-after="${GRACE_PERIOD_SECONDS}s" "${SLICE_MINUTES}m" \
+            python scripts/lightning_checkpoint_runner.py \
+              --shell-command "${RUN_COMMAND}" \
+              --workdir . \
+              --checkpoint-dir "${CHECKPOINT_DIR}" \
+              --save-every-seconds "${SAVE_EVERY_SECONDS}" \
+              --grace-period-seconds "${GRACE_PERIOD_SECONDS}" \
+              --shutdown-exit-code 75 \
+              "${tracked_args[@]}"
+          exit_code=$?
+
+          resume_needed=false
+          fatal_failed=false
+          case "${exit_code}" in
+            0)
+              ;;
+            75|124|137|143)
+              resume_needed=true
+              ;;
+            *)
+              fatal_failed=true
+              ;;
+          esac
+
+          {
+            echo "exit_code=${exit_code}"
+            echo "resume_needed=${resume_needed}"
+            echo "fatal_failed=${fatal_failed}"
+          } >> "${GITHUB_OUTPUT}"
+          exit 0
+      - name: Write run status
+        if: always()
+        env:
+          CONFIG_PATH: ${{ github.event.inputs.config_path }}
+          RESUME_COUNT: ${{ github.event.inputs.resume_count }}
+          EXIT_CODE: ${{ steps.run_slice.outputs.exit_code }}
+          RESUME_NEEDED: ${{ steps.run_slice.outputs.resume_needed }}
+          FATAL_FAILED: ${{ steps.run_slice.outputs.fatal_failed }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from datetime import UTC, datetime
+          from pathlib import Path
+
+          payload = {
+              "generated_at_utc": datetime.now(UTC).isoformat(),
+              "config_path": os.environ.get("CONFIG_PATH"),
+              "resume_count": int(os.environ.get("RESUME_COUNT") or 0),
+              "exit_code": int(os.environ.get("EXIT_CODE") or 0),
+              "resume_needed": os.environ.get("RESUME_NEEDED") == "true",
+              "fatal_failed": os.environ.get("FATAL_FAILED") == "true",
+          }
+          Path("github-cpu-run-status.json").write_text(json.dumps(payload, indent=2) + "\n")
+          PY
+      - name: Upload checkpoint artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: github-cpu-autoresume-checkpoint
+          path: |
+            ${{ env.CHECKPOINT_DIR }}/
+            github-cpu-run-status.json
+          if-no-files-found: warn
+          compression-level: 0
+      - name: Dispatch next GitHub CPU slice
+        if: steps.run_slice.outputs.resume_needed == 'true' && fromJSON(github.event.inputs.resume_count) < fromJSON(env.MAX_RESTARTS)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OWNER: ${{ github.repository_owner }}
+          REPO: ${{ github.event.repository.name }}
+          CONFIG_PATH: ${{ github.event.inputs.config_path }}
+          RESUME_COUNT: ${{ github.event.inputs.resume_count }}
+          SLICE_MINUTES: ${{ github.event.inputs.slice_minutes }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          next_resume_count=$((RESUME_COUNT + 1))
+          payload=$(cat <<EOF
+          {
+            "ref": "${REF_NAME:-main}",
+            "inputs": {
+              "config_path": "${CONFIG_PATH:-configs/lightning_run.yaml}",
+              "resume_count": "${next_resume_count}",
+              "slice_minutes": "${SLICE_MINUTES:-230}"
+            }
+          }
+          EOF
+          )
+          curl -sS -X POST \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${OWNER}/${REPO}/actions/workflows/github-actions-autoresume-run.yml/dispatches" \
+            -d "${payload}"
+      - name: Fail when max restart count is reached
+        if: steps.run_slice.outputs.resume_needed == 'true' && fromJSON(github.event.inputs.resume_count) >= fromJSON(env.MAX_RESTARTS)
+        run: |
+          echo "Max restart count reached."
+          exit 1
+      - name: Fail on fatal command exit
+        if: steps.run_slice.outputs.fatal_failed == 'true'
+        run: |
+          echo "The wrapped command failed with exit code ${{ steps.run_slice.outputs.exit_code }}."
+          exit 1

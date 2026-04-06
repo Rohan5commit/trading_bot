@@ -1,0 +1,23 @@
+universe: [AAPL, MSFT, NVDA, TSLA, SPY]
+start: "2010-01-01"
+end: "2024-12-31"
+ohlcv_batch: true
+ohlcv_batch_size: 25
+
+providers:
+  yfinance: true
+  polygon: false
+  alpha_vantage: false
+  newsapi: false
+  fred: true
+
+hf_yahoo_enabled: true
+hf_yahoo_cache_dir: data/raw/hf_yahoo_finance
+
+sec_fsds:
+  enabled: false
+
+paths:
+  raw: data/raw
+  processed: data/processed
+  corpus: data/corpus

@@ -1,0 +1,43 @@
+universe_source: hf_liquid
+max_tickers: 6000
+start: "2010-01-01"
+end: "2024-12-31"
+indicator_mode: expanded
+ohlcv_batch: true
+ohlcv_batch_size: 60
+hf_yahoo_enabled: true
+hf_yahoo_cache_dir: /data/raw_hf_solid/hf_yahoo_finance
+allow_source_fallbacks: false
+feature_refresh: true
+corpus_refresh: true
+generate_labels: true
+generate_text: true
+label_window: 5
+
+sec_fsds:
+  enabled: true
+  years: [2010, 2011, 2012, 2013, 2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024]
+  raw_dir: /data/raw_hf_solid/sec_fsds
+  processed_dir: /data/processed_hf_solid/sec_fsds
+  refresh: false
+  download_workers: 4
+
+paths:
+  raw: /data/raw_hf_solid
+  processed: /data/processed_hf_solid
+  corpus: /data/corpus_hf_solid
+
+corpus:
+  tabular: /data/corpus_hf_solid/tabular.parquet
+  text: /data/corpus_hf_solid/text_corpus.jsonl
+
+text_corpus:
+  train_output: /data/corpus_hf_solid/train_text.jsonl
+  val_output: /data/corpus_hf_solid/val_text.jsonl
+  train_start: "2010-01-01"
+  train_end: "2021-12-31"
+  val_start: "2022-01-01"
+  val_end: "2022-12-31"
+  max_train_rows: null
+  max_val_rows: null
+  sample_seed: 42

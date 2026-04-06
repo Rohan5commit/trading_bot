@@ -1,0 +1,42 @@
+universe_source: nasdaq_all
+max_tickers: 3000
+start: "2010-01-01"
+end: "2024-12-31"
+indicator_mode: expanded
+ohlcv_batch: true
+ohlcv_batch_size: 100
+hf_yahoo_enabled: true
+hf_yahoo_cache_dir: /data/raw/hf_yahoo_finance
+feature_refresh: false
+corpus_refresh: false
+generate_labels: true
+generate_text: true
+label_window: 5
+
+sec_fsds:
+  enabled: true
+  years: [2010, 2011, 2012, 2013, 2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024]
+  raw_dir: /data/raw/sec_fsds
+  processed_dir: /data/processed/sec_fsds
+  refresh: false
+  download_workers: 2
+
+paths:
+  raw: /data/raw
+  processed: /data/processed
+  corpus: /data/corpus
+
+corpus:
+  tabular: /data/corpus/tabular.parquet
+  text: /data/corpus/text_corpus.jsonl
+
+text_corpus:
+  train_output: /data/corpus/train_text.jsonl
+  val_output: /data/corpus/val_text.jsonl
+  train_start: "2010-01-01"
+  train_end: "2021-12-31"
+  val_start: "2022-01-01"
+  val_end: "2022-12-31"
+  max_train_rows: 1000000
+  max_val_rows: 50000
+  sample_seed: 42

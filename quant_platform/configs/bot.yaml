@@ -1,0 +1,7 @@
+watchlist: [AAPL, MSFT, NVDA, TSLA, SPY]
+run_time_sgt: '08:00'
+backend: nim_api
+output_dir: reports/bot
+telegram:
+  enabled: false
+  chat_id: ''

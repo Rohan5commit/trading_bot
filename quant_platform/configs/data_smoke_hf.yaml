@@ -1,0 +1,37 @@
+universe: [AAPL, MSFT, NVDA, TSLA, SPY]
+start: "2018-01-01"
+end: "2024-12-31"
+indicator_mode: expanded
+ohlcv_batch: true
+ohlcv_batch_size: 5
+hf_yahoo_enabled: true
+hf_yahoo_cache_dir: /data/raw/hf_yahoo_finance
+allow_source_fallbacks: false
+feature_refresh: true
+corpus_refresh: true
+generate_labels: true
+generate_text: true
+label_window: 5
+
+sec_fsds:
+  enabled: false
+
+paths:
+  raw: /data/raw
+  processed: /data/processed_smoke_hf
+  corpus: /data/corpus_smoke_hf
+
+corpus:
+  tabular: /data/corpus_smoke_hf/tabular.parquet
+  text: /data/corpus_smoke_hf/text_corpus.jsonl
+
+text_corpus:
+  train_output: /data/corpus_smoke_hf/train_text.jsonl
+  val_output: /data/corpus_smoke_hf/val_text.jsonl
+  train_start: "2018-01-01"
+  train_end: "2022-12-31"
+  val_start: "2023-01-01"
+  val_end: "2024-12-31"
+  max_train_rows: 10000
+  max_val_rows: 2000
+  sample_seed: 42

@@ -1,99 +1,93 @@
-# Daily Trading Bot
+# Trading Bot
 
-This is a Python-based trading bot designed to run daily, ingest market data, generate signals, and execute trades (simulated or real).
+This repo now contains both parts of the system in one place:
 
-## Setup
+1. The daily trading bot at the repo root
+2. The train-once quant model platform under `quant_platform/`
 
-### Prerequisites
-- Python 3.10+
-- `pip`
+## Repo Layout
 
-### Installation
-1. Clone the repository.
-2. Install dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
-3. Create a `.env` file with your API keys:
-   ```bash
-   cp .env.example .env
-   ```
-4. Open `.env` and paste your keys (do not commit `.env`).
+- Root: live trading bot, daily orchestration, SQLite state, email/reporting
+- `quant_platform/`: corpus building, one-time GPU training, frozen LoRA adapter workflow, backtesting/research platform
 
-## Usage
+## Current Architecture
 
-### Local Run
-To run the daily job manually:
+```
+trading_bot/
+├── main.py                      # Daily core bot + AI bot orchestration
+├── llm_trader.py                # AI trading branch using the trained model
+├── trained_model_client.py      # Remote HTTP client for trained-model inference
+├── modal_trained_model_service.py
+├── backtesting/                 # Existing research stack in the bot repo
+└── quant_platform/              # Merged train-once quant platform repo
+```
+
+## Core vs AI
+
+- Core bot remains unchanged in principle: price ingestion, feature generation, OLS ranking, meta-learner, portfolio logic
+- AI trading bot is separate and now uses the trained quant model over HTTP
+- The AI path is batched and designed to call the Modal CPU endpoint, not a local model
+
+## Secrets
+
+### Still used
+- `NVIDIA_API_KEY`: news sentiment path
+- `TRAINED_MODEL_INFERENCE_URL`: deployed Modal CPU inference URL for the AI trading bot
+- `TRAINED_MODEL_API_KEY`: optional auth for the trained-model endpoint
+- `TWELVEDATA_API_KEYS`, `ALPHAVANTAGE_API_KEYS`: optional price providers
+
+### No longer used by the AI trading bot
+- `NVIDIA_REASONING_API_KEY`
+
+## Main Workflows
+
+- `.github/workflows/daily_trading_bot.yml`
+  - Daily root bot workflow
+  - Core + AI orchestration
+- `.github/workflows/ai_trading_smoke.yml`
+  - AI-only smoke test against the trained model endpoint
+  - Does not run the core strategy
+
+## AI-Only Smoke Test
+
+Manual:
 ```bash
+python run_ai_trading_smoke.py
+```
+
+GitHub Actions:
+- Actions -> **AI Trading Smoke**
+- This tests only the AI trading branch and the trained-model endpoint
+
+## Quant Platform
+
+The full train-once quant platform has been merged into:
+
+- [quant_platform/](./quant_platform)
+
+That subtree contains:
+- corpus builders
+- training scripts
+- backtest engine
+- inference/API scaffolding
+- configs, docs, and tests from the original train-once repo
+
+Start there if you want to inspect the model/training system rather than the daily bot.
+
+## Local Setup
+
+```bash
+pip install -r requirements.txt
 python main.py daily_job
 ```
 
-### Full Pipeline
-To run the full pipeline (ingest, train, backtest):
+For AI-only testing:
 ```bash
-python main.py full
+python run_ai_trading_smoke.py
 ```
 
-## API Keys (Step-by-Step)
+## Notes
 
-This repo is set up so secrets are **not** stored in git. A fresh `git clone` will **not** include your API keys.
-
-### A) Run Locally (Recommended)
-1. Clone:
-   ```bash
-   git clone https://github.com/Rohan5commit/trading_bot.git
-   cd trading_bot
-   ```
-2. Create `.env`:
-   ```bash
-   cp .env.example .env
-   ```
-3. Open `.env` and paste your keys:
-   - In VS Code: `code .` then click `.env` and paste values.
-   - In Terminal: `nano .env` then paste values and save.
-4. Required env vars for the current setup:
-   - `NVIDIA_API_KEY` (news/LLM sentiment)
-   - `NVIDIA_REASONING_API_KEY` (AI strategy trade selection)
-   - Email: `SMTP_SERVER`, `SMTP_PORT`, `SENDER_EMAIL`, `SENDER_PASSWORD`, `RECIPIENT_EMAIL`
-   - Optional (faster S&P500 ingestion): `TWELVEDATA_API_KEYS` (comma-separated)
-5. Run:
-   ```bash
-   python3 main.py daily_job
-   ```
-
-### B) Run In GitHub Actions (Cloud)
-1. Go to your repo on GitHub.
-2. `Settings` -> `Secrets and variables` -> `Actions`.
-3. Click `New repository secret`.
-4. Add secrets (names must match exactly):
-   - `NVIDIA_API_KEY`
-   - `NVIDIA_API_KEY_ID` (optional)
-   - `NVIDIA_REASONING_API_KEY`
-   - `NVIDIA_REASONING_API_KEY_ID` (optional)
-   - `TWELVEDATA_API_KEYS` (optional, comma-separated)
-   - Email secrets as used by your deployment (see your workflow / `send_email_report.py` configuration).
-
-## State Persistence (Important)
-Positions and account state live in SQLite at `data/trading_bot.db`.
-- GitHub Actions keeps this via cache for cloud runs.
-- A new local clone starts "fresh" unless you restore a saved copy of `data/trading_bot.db`.
-
-## GitHub Actions Deployment
-
-This repository includes a GitHub Actions workflow (`.github/workflows/daily_trading_bot.yml`) that runs the bot daily at 9:30 AM EST (Mon-Fri).
-
-### Configuration
-To execute successfully on GitHub Actions, you must configure the following **Repository Secrets** in your GitHub repository (Settings -> Secrets and variables -> Actions):
-
-| Secret Name | Description |
-|---|---|
-| `TWELVEDATA_API_KEYS` | Comma-separated API keys for TwelveData (if used). |
-| `ALPHAVANTAGE_API_KEYS` | Comma-separated API keys for AlphaVantage (if used). |
-| `MAILGUN_API_KEY` | API Key for Mailgun (for email reports). |
-| `MAILGUN_DOMAIN` | Mailgun domain (e.g., `mg.yourdomain.com`). |
-| `EMAIL_RECIPIENTS` | Comma-separated list of email addresses to receive reports. |
-| `EMAIL_SENDER` | Email address to send from (e.g., `bot@yourdomain.com`). |
-| `OPENAI_API_KEY` | OpenAI API Key (for LLM analysis). |
-
-### Workflows
-- **Daily Trading Bot**: Triggers on schedule (Mon-Fri) and can be manually triggered via the "Run workflow" button in the Actions tab.
+- The AI bot is remote-only and expects the trained model to be served externally.
+- The current deployment target is Modal CPU.
+- The core bot and AI bot remain logically separate even though they now live in one combined repo.

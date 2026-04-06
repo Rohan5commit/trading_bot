@@ -1,0 +1,138 @@
+name: Monitor OCI Pipeline
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+    inputs:
+      display_name:
+        description: "Instance display name"
+        required: true
+        default: "quant-cpu-pipeline"
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install OCI CLI
+        run: python -m pip install --upgrade oci-cli
+      - name: Configure OCI CLI
+        env:
+          OCI_TENANCY_OCID: ${{ secrets.OCI_TENANCY_OCID }}
+          OCI_USER_OCID: ${{ secrets.OCI_USER_OCID }}
+          OCI_FINGERPRINT: ${{ secrets.OCI_FINGERPRINT }}
+          OCI_REGION: ${{ secrets.OCI_REGION }}
+          OCI_PRIVATE_KEY: ${{ secrets.OCI_PRIVATE_KEY }}
+        run: |
+          mkdir -p ~/.oci
+          printf "%s" "$OCI_PRIVATE_KEY" > ~/.oci/oci_api_key.pem
+          chmod 600 ~/.oci/oci_api_key.pem
+          printf "[DEFAULT]\nuser=%s\nfingerprint=%s\ntenancy=%s\nregion=%s\nkey_file=~/.oci/oci_api_key.pem\n" \
+            "$OCI_USER_OCID" "$OCI_FINGERPRINT" "$OCI_TENANCY_OCID" "$OCI_REGION" > ~/.oci/config
+          chmod 600 ~/.oci/config
+      - name: Monitor status
+        env:
+          OCI_COMPARTMENT_OCID: ${{ secrets.OCI_COMPARTMENT_OCID }}
+          CHECKPOINT_S3_BUCKET: ${{ secrets.CHECKPOINT_S3_BUCKET }}
+          CHECKPOINT_S3_PREFIX: ${{ secrets.CHECKPOINT_S3_PREFIX }}
+          DISPLAY_NAME: ${{ inputs.display_name }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import subprocess
+          from datetime import datetime, timezone
+
+          def run(cmd):
+              return subprocess.check_output(cmd, text=True)
+
+          display_name = os.environ.get("DISPLAY_NAME") or "quant-cpu-pipeline"
+          compartment = os.environ["OCI_COMPARTMENT_OCID"]
+          bucket = os.environ["CHECKPOINT_S3_BUCKET"]
+          prefix = (os.environ.get("CHECKPOINT_S3_PREFIX") or "train-once").strip("/")
+
+          ns = run(["oci", "os", "ns", "get", "--query", "data", "--raw-output"]).strip()
+          instances = json.loads(
+              run([
+                  "oci", "compute", "instance", "list",
+                  "--compartment-id", compartment,
+                  "--display-name", display_name,
+                  "--all",
+              ])
+          )["data"]
+          instances = [i for i in instances if i.get("lifecycle-state") != "TERMINATED"]
+          instances.sort(key=lambda i: i.get("time-created") or "")
+          inst = instances[-1] if instances else None
+
+          heartbeat = None
+          heartbeat_content = None
+          try:
+              objs = json.loads(
+                  run([
+                      "oci", "os", "object", "list",
+                      "--namespace", ns,
+                      "--bucket-name", bucket,
+                      "--prefix", f"{prefix}/progress/heartbeat_",
+                      "--fields", "name,timeCreated",
+                  ])
+              )["data"]
+              if objs:
+                  objs.sort(key=lambda o: o.get("time-created") or "")
+                  heartbeat = objs[-1]
+                  tmp = "/tmp/heartbeat.json"
+                  subprocess.check_call([
+                      "oci", "os", "object", "get",
+                      "--namespace", ns,
+                      "--bucket-name", bucket,
+                      "--name", heartbeat["name"],
+                      "--file", tmp,
+                  ])
+                  with open(tmp, "r") as f:
+                      heartbeat_content = json.load(f)
+          except subprocess.CalledProcessError:
+              pass
+
+          summary_name = f"{prefix}/reports/chunk_summary_0.json"
+          has_summary = False
+          try:
+              subprocess.check_output([
+                  "oci", "os", "object", "head",
+                  "--namespace", ns,
+                  "--bucket-name", bucket,
+                  "--name", summary_name,
+              ], text=True)
+              has_summary = True
+          except subprocess.CalledProcessError:
+              has_summary = False
+
+          status = {
+              "timestamp": datetime.now(timezone.utc).isoformat(),
+              "instance": {
+                  "id": inst.get("id") if inst else None,
+                  "lifecycle_state": inst.get("lifecycle-state") if inst else None,
+                  "time_created": inst.get("time-created") if inst else None,
+              },
+              "heartbeat": heartbeat_content,
+              "heartbeat_object": heartbeat,
+              "chunk_summary_0_present": has_summary,
+          }
+          print(json.dumps(status, indent=2))
+          with open("/tmp/monitor_status.json", "w") as f:
+              json.dump(status, f, indent=2)
+          subprocess.check_call([
+              "oci", "os", "object", "put",
+              "--namespace", ns,
+              "--bucket-name", bucket,
+              "--name", f"{prefix}/progress/monitor_status.json",
+              "--file", "/tmp/monitor_status.json",
+              "--force",
+          ])
+          PY
+      - name: Upload monitor artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: monitor_status
+          path: /tmp/monitor_status.json

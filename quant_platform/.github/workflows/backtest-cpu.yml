@@ -1,0 +1,24 @@
+name: Backtest CPU
+
+on:
+  workflow_dispatch:
+
+jobs:
+  backtest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Build features and run backtest
+        run: |
+          python -m src.cli build-data --config configs/data.yaml
+          python -m src.cli backtest --config configs/backtest.yaml
+      - name: Upload reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: backtest-reports
+          path: reports/backtest

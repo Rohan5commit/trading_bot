@@ -1,0 +1,38 @@
+app_name: lightning-cpu-build-data
+studio_name: rude-teal-op1l
+studio_auto_discover_free: true
+studio_cluster_id: gcp-lightning-public-prod
+studio_compute_name: cpu-4
+studio_disk_size_gb: 400
+studio_ide: jupyterlab
+studio_repo_url: https://github.com/Rohan5commit/train-once-quant-platform.git
+studio_repo_ref: main
+studio_repo_dir: train-once-quant-platform-studio
+studio_session_name: train-once-build-data
+studio_checkpoint_dir: /teamspace/studios/this_studio/.lightning-checkpoints/train-once-build-data
+command: PYTHONPATH=src python -m cli build-data --config configs/data.yaml
+work_requirements_file: requirements-data.txt
+app_entrypoint: lightning_cloud_app.py
+cloud_cluster_id: lightning-public-prod
+cloud_compute_name: cpu-2
+force_run_on_launch: true
+disk_size_gb: 30
+drive_id: lightning-cpu-build-data-checkpoints
+checkpoint_dir: .lightning-checkpoints
+save_every_seconds: 14400
+grace_period_seconds: 300
+max_restarts: 16
+restart_exit_codes:
+  - 75
+  - 137
+  - 143
+without_server: true
+blocking: false
+open_ui: false
+restart_on_terminal: true
+relaunch_if_missing: true
+tracked_paths:
+  - data/raw
+  - data/processed
+  - artifacts
+  - reports
