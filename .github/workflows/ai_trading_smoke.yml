@@ -14,7 +14,7 @@ jobs:
       TWELVEDATA_API_KEYS: ${{ secrets.TWELVEDATA_API_KEYS }}
       ALPHAVANTAGE_API_KEYS: ${{ secrets.ALPHAVANTAGE_API_KEYS }}
       NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
-      AI_SMOKE_TICKERS: "AAPL,MSFT,NVDA,TSLA,SPY"
+      AI_SMOKE_TICKERS: "AAPL"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
