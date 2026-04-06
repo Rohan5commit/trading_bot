@@ -117,6 +117,7 @@ ai_trading:
     inference_url: ""
     inference_url_env: "TRAINED_MODEL_INFERENCE_URL"
     api_key_env: "TRAINED_MODEL_API_KEY"
+    # The endpoint is expected to be a remote CPU inference service (for example Lightning AI).
     timeout_seconds: 600
     model_name: "quant-trained-trading-model"
 

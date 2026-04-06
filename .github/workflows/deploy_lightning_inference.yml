@@ -1,0 +1,40 @@
+name: Deploy Lightning Inference
+
+on:
+  workflow_dispatch:
+
+jobs:
+  deploy-lightning-inference:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      LIGHTNING_USERNAME: ${{ secrets.LIGHTNING_USERNAME }}
+      LIGHTNING_API_KEY: ${{ secrets.LIGHTNING_API_KEY }}
+      LIGHTNING_USER_ID: ${{ secrets.LIGHTNING_USER_ID }}
+      TRAINED_MODEL_BASE_MODEL: "Qwen/Qwen2.5-7B-Instruct"
+      TRAINED_MODEL_NAME: "quant-trained-trading-model"
+      TRAINED_MODEL_CPU_THREADS: "8"
+      LIGHTNING_INFERENCE_COMPUTE_NAME: "cpu"
+      LIGHTNING_INFERENCE_DISK_GB: "80"
+      TRAINED_MODEL_API_KEY: ${{ secrets.TRAINED_MODEL_API_KEY }}
+      TRAINED_MODEL_ADAPTER_ARCHIVE_URL: ${{ secrets.TRAINED_MODEL_ADAPTER_ARCHIVE_URL }}
+      TRAINED_MODEL_ADAPTER_ARCHIVE_TOKEN: ${{ secrets.TRAINED_MODEL_ADAPTER_ARCHIVE_TOKEN }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Lightning deploy dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install lightning-app==2.3.2 lightning-cloud==0.5.70
+
+      - name: Lightning preflight
+        run: python quant_platform/scripts/lightning_account_preflight.py
+
+      - name: Deploy inference service
+        run: python deploy_lightning_inference.py

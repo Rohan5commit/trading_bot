@@ -1,0 +1,10 @@
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
+requests>=2.32.0
+torch==2.4.1
+transformers>=4.46.0
+peft>=0.13.2
+accelerate>=1.0.1
+sentencepiece>=0.2.0
+lightning-app==2.3.2
+lightning-cloud==0.5.70
