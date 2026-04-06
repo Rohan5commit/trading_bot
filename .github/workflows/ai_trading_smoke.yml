@@ -14,7 +14,8 @@ jobs:
       NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
       TRAINED_MODEL_INFERENCE_URL: ${{ secrets.TRAINED_MODEL_INFERENCE_URL }}
       TRAINED_MODEL_API_KEY: ${{ secrets.TRAINED_MODEL_API_KEY }}
-      AI_SMOKE_TICKERS: "AAPL"
+      AI_SMOKE_TICKERS: "AAPL,TSLA,MSFT"
+      AI_SMOKE_USE_STATIC: "1"
     steps:
       - name: Checkout
         uses: actions/checkout@v4

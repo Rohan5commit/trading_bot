@@ -157,10 +157,82 @@ def build_candidates(config, tickers):
     return candidates, failures
 
 
+def build_static_candidates():
+    return [
+        {
+            "symbol": "AAPL",
+            "as_of_date": "2026-04-04",
+            "last_date": "2026-04-04",
+            "last_close": 188.4,
+            "closes_tail": [185.1, 186.2, 187.3, 188.4],
+            "volume_1d": 55321000.0,
+            "volume_20d_avg": 50234000.0,
+            "return_1d": 0.6,
+            "return_5d": 2.1,
+            "return_10d": 3.0,
+            "volatility_20d": 0.22,
+            "dist_ma_20": 0.03,
+            "dist_ma_50": 0.06,
+            "rsi_14": 58.0,
+            "volume_ratio": 1.1,
+            "news_count_7d": 4,
+            "news_sentiment_7d": 0.2,
+            "price_source": "static_smoke",
+        },
+        {
+            "symbol": "TSLA",
+            "as_of_date": "2026-04-04",
+            "last_date": "2026-04-04",
+            "last_close": 166.2,
+            "closes_tail": [172.3, 170.5, 168.1, 166.2],
+            "volume_1d": 97412000.0,
+            "volume_20d_avg": 81234000.0,
+            "return_1d": -1.1,
+            "return_5d": -3.4,
+            "return_10d": -5.2,
+            "volatility_20d": 0.46,
+            "dist_ma_20": -0.07,
+            "dist_ma_50": -0.11,
+            "rsi_14": 38.0,
+            "volume_ratio": 1.3,
+            "news_count_7d": 7,
+            "news_sentiment_7d": -0.25,
+            "price_source": "static_smoke",
+        },
+        {
+            "symbol": "MSFT",
+            "as_of_date": "2026-04-04",
+            "last_date": "2026-04-04",
+            "last_close": 421.7,
+            "closes_tail": [417.4, 419.3, 420.8, 421.7],
+            "volume_1d": 23124000.0,
+            "volume_20d_avg": 24456000.0,
+            "return_1d": 0.2,
+            "return_5d": 1.0,
+            "return_10d": 1.8,
+            "volatility_20d": 0.18,
+            "dist_ma_20": 0.02,
+            "dist_ma_50": 0.04,
+            "rsi_14": 55.0,
+            "volume_ratio": 0.95,
+            "news_count_7d": 3,
+            "news_sentiment_7d": 0.1,
+            "price_source": "static_smoke",
+        },
+    ], []
+
+
 def main():
     config = load_config()
+    use_static = str(os.getenv("AI_SMOKE_USE_STATIC", "0") or "0").strip().lower() in {"1", "true", "yes", "on"}
     tickers = [s.strip().upper() for s in os.getenv("AI_SMOKE_TICKERS", "AAPL,MSFT,NVDA,TSLA,SPY").split(",") if s.strip()]
-    candidates, failures = build_candidates(config, tickers)
+    if use_static:
+        candidates, failures = build_static_candidates()
+        if tickers:
+            tickers_set = set(tickers)
+            candidates = [candidate for candidate in candidates if candidate["symbol"] in tickers_set]
+    else:
+        candidates, failures = build_candidates(config, tickers)
 
     ai_cfg = config.get("ai_trading", {}) if isinstance(config, dict) else {}
     trades, status = propose_trades_with_llm(
