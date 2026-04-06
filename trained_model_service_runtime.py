@@ -186,6 +186,7 @@ def _load_runtime():
             BASE_MODEL,
             trust_remote_code=True,
             low_cpu_mem_usage=True,
+            torch_dtype="auto",
         )
         model = PeftModel.from_pretrained(model, str(adapter_dir), is_trainable=False)
         model.eval()
