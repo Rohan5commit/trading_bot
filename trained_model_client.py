@@ -30,7 +30,10 @@ class TrainedModelTradeClient:
         ai_cfg = dict(ai_cfg or {})
         model_cfg = dict(ai_cfg.get("trained_model") or {})
         self.backend = str(model_cfg.get("backend", "http") or "http").strip().lower()
+        self.inference_url_env = str(model_cfg.get("inference_url_env", "") or "").strip()
         self.inference_url = str(model_cfg.get("inference_url", "") or "").strip()
+        if not self.inference_url and self.inference_url_env and os.getenv(self.inference_url_env):
+            self.inference_url = os.getenv(self.inference_url_env).strip()
         self.api_key_env = str(model_cfg.get("api_key_env", "") or "").strip()
         self.api_key = os.getenv(self.api_key_env).strip() if self.api_key_env and os.getenv(self.api_key_env) else ""
         self.timeout_seconds = int(model_cfg.get("timeout_seconds", 60) or 60)

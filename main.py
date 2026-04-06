@@ -747,9 +747,16 @@ class DailyBacktester:
             ai_max_shorts = int(ai_cfg.get("max_shorts", 5))
             ai_available_slots = max(0, ai_max_positions - len(ai_open_symbols))
 
-            # AI strategy is "pure AI decision": do NOT use the core model rankings.
-            # Provide the LLM a compact per-symbol market snapshot and let it decide.
-            def _recent_price_metrics(conn_, sym_, lookback=25):
+            # AI strategy uses the trained model only. Core rankings remain untouched.
+            def _pyfloat(value):
+                try:
+                    if pd.isna(value):
+                        return None
+                    return float(value)
+                except Exception:
+                    return None
+
+            def _recent_price_metrics(conn_, sym_, lookback=30):
                 dfp = pd.read_sql(
                     "SELECT date, close, volume FROM prices WHERE symbol=? ORDER BY date DESC LIMIT ?",
                     conn_,
@@ -759,10 +766,6 @@ class DailyBacktester:
                     return None
                 dfp = dfp.sort_values("date").reset_index(drop=True)
                 closes = dfp["close"].astype(float).tolist()
-                # IMPORTANT:
-                # To keep the AI strategy "LLM-only", we do NOT compute or pass explicit momentum/return fields
-                # (e.g., 1d/5d/20d returns). We provide a small raw price/volume window and let the LLM decide
-                # what (if any) indicators to derive from it.
                 tail_n = min(10, len(closes))
                 closes_tail = [float(x) for x in closes[-tail_n:]]
                 v20 = float(dfp["volume"].astype(float).tail(20).mean()) if "volume" in dfp.columns else None
@@ -770,16 +773,92 @@ class DailyBacktester:
                 return {
                     "last_date": str(dfp["date"].iloc[-1]),
                     "last_close": float(closes_tail[-1]),
-                    "closes_tail": closes_tail,  # last ~10 closes (oldest->newest)
+                    "closes_tail": closes_tail,
                     "volume_1d": v1,
                     "volume_20d_avg": v20,
                 }
 
-            # Exclude names already open in the AI account.
+            def _latest_feature_snapshot(conn_, sym_, lookback=80, news_window_days=7):
+                dfp = pd.read_sql(
+                    "SELECT date, close, volume FROM prices WHERE symbol=? ORDER BY date DESC LIMIT ?",
+                    conn_,
+                    params=(sym_, int(lookback)),
+                )
+                if dfp.empty or len(dfp) < 20:
+                    return {
+                        "return_1d": None,
+                        "return_5d": None,
+                        "return_10d": None,
+                        "volatility_20d": None,
+                        "dist_ma_20": None,
+                        "dist_ma_50": None,
+                        "rsi_14": None,
+                        "volume_ratio": None,
+                        "news_count_7d": 0,
+                        "news_sentiment_7d": 0.0,
+                    }
+
+                dfp = dfp.sort_values("date").reset_index(drop=True).copy()
+                dfp["close"] = pd.to_numeric(dfp["close"], errors="coerce")
+                dfp["volume"] = pd.to_numeric(dfp["volume"], errors="coerce")
+                dfp["return_1d"] = dfp["close"].pct_change(1)
+                dfp["return_5d"] = dfp["close"].pct_change(5)
+                dfp["return_10d"] = dfp["close"].pct_change(10)
+                dfp["volatility_20d"] = dfp["return_1d"].rolling(20).std()
+                dfp["ma_20"] = dfp["close"].rolling(20).mean()
+                dfp["ma_50"] = dfp["close"].rolling(50).mean()
+                dfp["dist_ma_20"] = (dfp["close"] - dfp["ma_20"]) / dfp["ma_20"]
+                dfp["dist_ma_50"] = (dfp["close"] - dfp["ma_50"]) / dfp["ma_50"]
+
+                delta = dfp["close"].diff()
+                gain = delta.where(delta > 0, 0.0).rolling(window=14).mean()
+                loss = (-delta.where(delta < 0, 0.0)).rolling(window=14).mean()
+                rs = gain / loss.replace(0, pd.NA)
+                dfp["rsi_14"] = 100 - (100 / (1 + rs))
+                dfp["volume_ma_20"] = dfp["volume"].rolling(20).mean()
+                dfp["volume_ratio"] = dfp["volume"] / dfp["volume_ma_20"]
+
+                latest = dfp.iloc[-1]
+                end_dt = pd.to_datetime(latest["date"])
+                news_count_7d = 0
+                news_sentiment_7d = 0.0
+                try:
+                    news_df = pd.read_sql(
+                        "SELECT datetime, sentiment_score FROM news WHERE symbol=? ORDER BY datetime DESC LIMIT 250",
+                        conn_,
+                        params=(sym_,),
+                    )
+                    if not news_df.empty and "datetime" in news_df.columns:
+                        news_df["datetime"] = pd.to_datetime(news_df["datetime"], errors="coerce")
+                        news_df = news_df.dropna(subset=["datetime"])
+                        if not news_df.empty:
+                            start_dt = end_dt - pd.Timedelta(days=int(news_window_days or 7))
+                            news_df = news_df[news_df["datetime"] >= start_dt]
+                            news_count_7d = int(len(news_df))
+                            if "sentiment_score" in news_df.columns:
+                                sentiment = pd.to_numeric(news_df["sentiment_score"], errors="coerce").dropna()
+                                if not sentiment.empty:
+                                    news_sentiment_7d = float(sentiment.mean())
+                except Exception:
+                    news_count_7d = 0
+                    news_sentiment_7d = 0.0
+
+                return {
+                    "return_1d": _pyfloat(latest.get("return_1d")),
+                    "return_5d": _pyfloat(latest.get("return_5d")),
+                    "return_10d": _pyfloat(latest.get("return_10d")),
+                    "volatility_20d": _pyfloat(latest.get("volatility_20d")),
+                    "dist_ma_20": _pyfloat(latest.get("dist_ma_20")),
+                    "dist_ma_50": _pyfloat(latest.get("dist_ma_50")),
+                    "rsi_14": _pyfloat(latest.get("rsi_14")),
+                    "volume_ratio": _pyfloat(latest.get("volume_ratio")),
+                    "news_count_7d": int(news_count_7d),
+                    "news_sentiment_7d": float(news_sentiment_7d),
+                }
+
             universe_symbols = [str(t).strip().upper() for t in universe_df["ticker"].tolist() if str(t).strip()]
             universe_symbols = [s for s in universe_symbols if s not in ai_open_symbols]
 
-            # Optionally prevent AI from trading the same symbols as Core.
             disallow_overlap = bool(ai_cfg.get("disallow_core_overlap", True))
             blocked_by_core = 0
             if disallow_overlap and core_reserved_symbols:
@@ -790,23 +869,32 @@ class DailyBacktester:
             conn_ai = sqlite3.connect(self.db_path)
             cand = []
             try:
-                # IMPORTANT: previously this used the first N tickers from the universe file,
-                # which caused the LLM to see the same candidate set every run and repeat trades.
-                # Shuffle deterministically by date so the daily candidate set changes, but is stable
-                # within a given trading day (and reproducible for debugging).
                 seed = f"{pd.to_datetime(signal_date).date().isoformat()}-ai"
                 rng = random.Random(seed)
                 rng.shuffle(universe_symbols)
 
                 prompt_limit = int(ai_cfg.get("prompt_candidates_limit", 80) or 80)
+                price_lookback = int(ai_cfg.get("price_lookback_days", 30) or 30)
+                feature_lookback = int(ai_cfg.get("feature_lookback_days", 80) or 80)
+                news_window_days = int(ai_cfg.get("news_window_days", 7) or 7)
+
                 for sym in universe_symbols:
                     if len(cand) >= max(1, prompt_limit):
                         break
-                    m = _recent_price_metrics(conn_ai, sym, lookback=int(ai_cfg.get("price_lookback_days", 30) or 30))
-                    if not m:
+                    snapshot = _recent_price_metrics(conn_ai, sym, lookback=price_lookback)
+                    if not snapshot:
                         continue
-                    m["symbol"] = sym
-                    cand.append(m)
+                    snapshot.update(
+                        _latest_feature_snapshot(
+                            conn_ai,
+                            sym,
+                            lookback=feature_lookback,
+                            news_window_days=news_window_days,
+                        )
+                    )
+                    snapshot["symbol"] = sym
+                    snapshot["as_of_date"] = str(pd.to_datetime(signal_date).date())
+                    cand.append(snapshot)
             finally:
                 conn_ai.close()
 
@@ -817,7 +905,7 @@ class DailyBacktester:
                     "ok": True,
                     "skipped_reason": "no_capacity",
                     "error": None,
-                    "model": ai_cfg.get("llm_model"),
+                    "model": ((ai_cfg.get("trained_model") or {}).get("base_model") or (ai_cfg.get("trained_model") or {}).get("inference_url")),
                     "model_used": None,
                     "disallow_core_overlap": disallow_overlap,
                     "blocked_by_core": blocked_by_core,
@@ -959,7 +1047,7 @@ class DailyBacktester:
 
         ai_email_sent = True
         if ai_report is not None:
-            ai_insight = "LLM trading status: OK" if ai_llm_status.get("ok") else f"LLM trading status: ERROR - {ai_llm_status.get('error')}"
+            ai_insight = "AI trading engine status: OK" if ai_llm_status.get("ok") else f"AI trading engine status: ERROR - {ai_llm_status.get('error')}"
             ai_email_sent = notifier.send_daily_report(
                 report_data=ai_report,
                 unrealized_df=ai_unrealized,

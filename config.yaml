@@ -104,17 +104,25 @@ ai_trading:
   max_shorts: 5
   # Prevent Core + AI from holding the same symbols (keeps the strategies clearly distinct).
   disallow_core_overlap: true
-  # AI selection uses a compact market snapshot per symbol (no core-model ranking).
+  # AI selection uses raw prices plus deterministic feature snapshots as model inputs.
   price_lookback_days: 30
+  feature_lookback_days: 80
+  news_window_days: 7
   prompt_candidates_limit: 80
   # Force AI weights to deploy most available cash each run.
   min_total_weight: 0.90
-  # Use a separate reasoning model/key for trade selection.
-  llm_model: "nvidia/llama-3.1-nemotron-ultra-253b-v1"
-  llm_fallback_models:
-    - "meta/llama-3.1-70b-instruct"
-    - "stockmark/stockmark-2-100b-instruct"
-  api_key_env: "NVIDIA_REASONING_API_KEY"
+  decision_engine: "trained_model"
+  trained_model:
+    backend: "http"
+    inference_url: ""
+    inference_url_env: "TRAINED_MODEL_INFERENCE_URL"
+    api_key_env: "TRAINED_MODEL_API_KEY"
+    timeout_seconds: 60
+    base_model: "Qwen/Qwen2.5-7B-Instruct"
+    adapter_dir: "./models/lora_solid_adapter"
+    max_new_tokens: 64
+    temperature: 0.0
+    cpu_threads: 4
 
 
 

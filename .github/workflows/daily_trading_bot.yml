@@ -49,8 +49,8 @@ jobs:
           RECIPIENT_EMAIL: ${{ secrets.RECIPIENT_EMAIL }}
           NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
           NVIDIA_API_KEY_ID: ${{ secrets.NVIDIA_API_KEY_ID }}
-          NVIDIA_REASONING_API_KEY: ${{ secrets.NVIDIA_REASONING_API_KEY }}
-          NVIDIA_REASONING_API_KEY_ID: ${{ secrets.NVIDIA_REASONING_API_KEY_ID }}
+          TRAINED_MODEL_INFERENCE_URL: ${{ secrets.TRAINED_MODEL_INFERENCE_URL }}
+          TRAINED_MODEL_API_KEY: ${{ secrets.TRAINED_MODEL_API_KEY }}
           TWELVEDATA_API_KEYS: ${{ secrets.TWELVEDATA_API_KEYS }}
           ARM_LIVE_TRADING: ${{ secrets.ARM_LIVE_TRADING }}
           LOG_LEVEL: ${{ secrets.LOG_LEVEL }}
