@@ -71,27 +71,20 @@ def _candidate_prompt(candidate: Dict[str, Any]) -> str:
     lines = [
         f"TICKER: {symbol}",
         f"DATE: {as_of_date}",
-        "PRICE_ACTION:",
-        f"- last_close: {candidate.get('last_close')}",
-        f"- closes_tail: {candidate.get('closes_tail')}",
-        f"- volume_1d: {candidate.get('volume_1d')}",
-        f"- volume_20d_avg: {candidate.get('volume_20d_avg')}",
-        "INDICATORS:",
-        f"- return_1d: {candidate.get('return_1d')}",
-        f"- return_5d: {candidate.get('return_5d')}",
-        f"- return_10d: {candidate.get('return_10d')}",
-        f"- volatility_20d: {candidate.get('volatility_20d')}",
-        f"- dist_ma_20: {candidate.get('dist_ma_20')}",
-        f"- dist_ma_50: {candidate.get('dist_ma_50')}",
-        f"- rsi_14: {candidate.get('rsi_14')}",
-        f"- volume_ratio: {candidate.get('volume_ratio')}",
-        "NEWS_CONTEXT:",
-        f"- news_count_7d: {candidate.get('news_count_7d')}",
-        f"- news_sentiment_7d: {candidate.get('news_sentiment_7d')}",
-        "",
+        f"LAST_CLOSE: {candidate.get('last_close')}",
+        f"CLOSES_TAIL: {candidate.get('closes_tail')}",
+        f"RETURN_1D: {candidate.get('return_1d')}",
+        f"RETURN_5D: {candidate.get('return_5d')}",
+        f"RETURN_10D: {candidate.get('return_10d')}",
+        f"VOLATILITY_20D: {candidate.get('volatility_20d')}",
+        f"DIST_MA_20: {candidate.get('dist_ma_20')}",
+        f"DIST_MA_50: {candidate.get('dist_ma_50')}",
+        f"RSI_14: {candidate.get('rsi_14')}",
+        f"VOLUME_RATIO: {candidate.get('volume_ratio')}",
+        f"NEWS_COUNT_7D: {candidate.get('news_count_7d')}",
+        f"NEWS_SENTIMENT_7D: {candidate.get('news_sentiment_7d')}",
         "QUESTION: Classify the expected 5-day return as STRONG_BUY | BUY | NEUTRAL | SELL | STRONG_SELL.",
-        "Return ONLY JSON using this schema:",
-        '{"label":"BUY","confidence":0.63,"reason":"..."}',
+        'Return only compact JSON: {"label":"BUY","confidence":0.63,"reason":"short english phrase"}',
     ]
     return "\n".join(lines)
 
@@ -130,8 +123,7 @@ def _predict_one(candidate: Dict[str, Any]) -> Dict[str, Any]:
     model, tokenizer, torch = _load_runtime()
     system = (
         "You are the trained AI trading decision engine. "
-        "Return only valid JSON with label, confidence, and reason. "
-        "Use the provided market snapshot to classify the next 5-day return."
+        "Return only valid compact JSON with label, confidence, and a very short reason."
     )
     prompt = tokenizer.apply_chat_template(
         [
@@ -141,12 +133,12 @@ def _predict_one(candidate: Dict[str, Any]) -> Dict[str, Any]:
         tokenize=False,
         add_generation_prompt=True,
     )
-    encoded = tokenizer(prompt, return_tensors="pt")
+    encoded = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=1536)
     input_len = encoded["input_ids"].shape[-1]
     with torch.no_grad():
         generated = model.generate(
             **encoded,
-            max_new_tokens=64,
+            max_new_tokens=24,
             do_sample=False,
             pad_token_id=tokenizer.eos_token_id,
         )
