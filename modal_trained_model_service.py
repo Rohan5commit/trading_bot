@@ -11,7 +11,7 @@ VOLUME_NAME = os.getenv("TRAINED_MODEL_VOLUME", "train-once-artifacts")
 ADAPTER_PATH = os.getenv("TRAINED_MODEL_ADAPTER_PATH", "/artifacts/lora_solid_adapter")
 MODEL_NAME = os.getenv("TRAINED_MODEL_NAME", "quant-trained-trading-model")
 CPU_COUNT = int(os.getenv("TRAINED_MODEL_CPU", "8"))
-MEMORY_MB = int(os.getenv("TRAINED_MODEL_MEMORY_MB", "65536"))
+MEMORY_MB = int(os.getenv("TRAINED_MODEL_MEMORY_MB", "49152"))
 
 app = modal.App(APP_NAME)
 os.environ.setdefault("HF_HOME", "/artifacts/hf_home")
