@@ -71,7 +71,7 @@ def _candidate_prompt(candidate):
 def _load_runtime():
     base_model = os.getenv("TRAINED_MODEL_BASE_MODEL", "Qwen/Qwen2.5-7B-Instruct")
     adapter_path = os.getenv("TRAINED_MODEL_ADAPTER_PATH", "_smoke_artifacts/lora_solid_adapter")
-    cpu_threads = max(1, int(os.getenv("TRAINED_MODEL_CPU_THREADS", "8") or 8))
+    cpu_threads = max(1, int(os.getenv("TRAINED_MODEL_CPU_THREADS", "4") or 4))
     torch.set_num_threads(cpu_threads)
     tokenizer = AutoTokenizer.from_pretrained(base_model, trust_remote_code=True)
     if tokenizer.pad_token is None:
@@ -102,7 +102,7 @@ def _predict_one(model, tokenizer, candidate):
     with torch.no_grad():
         output = model.generate(
             **encoded,
-            max_new_tokens=24,
+            max_new_tokens=16,
             do_sample=False,
             pad_token_id=tokenizer.eos_token_id,
         )
