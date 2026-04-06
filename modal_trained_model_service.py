@@ -13,12 +13,16 @@ CPU_COUNT = int(os.getenv("TRAINED_MODEL_CPU", "8"))
 MEMORY_MB = int(os.getenv("TRAINED_MODEL_MEMORY_MB", "65536"))
 
 app = modal.App(APP_NAME)
+os.environ.setdefault("HF_HOME", "/artifacts/hf_home")
+os.environ.setdefault("TRANSFORMERS_CACHE", "/artifacts/hf_home/transformers")
+os.environ.setdefault("HUGGINGFACE_HUB_CACHE", "/artifacts/hf_home/hub")
+
 image = (
     modal.Image.debian_slim(python_version="3.11")
+    .pip_install("torch==2.4.1", index_url="https://download.pytorch.org/whl/cpu")
     .pip_install(
         "fastapi>=0.115.0",
         "pydantic>=2.9.2",
-        "torch>=2.4.1",
         "transformers>=4.46.0",
         "peft>=0.13.2",
         "accelerate>=1.0.1",
@@ -144,15 +148,18 @@ def _predict_one(candidate: Dict[str, Any]) -> Dict[str, Any]:
     cpu=CPU_COUNT,
     memory=MEMORY_MB,
     scaledown_window=300,
-    timeout=3600,
+    timeout=7200,
+    startup_timeout=1800,
     volumes={"/artifacts": volume},
 )
 @modal.fastapi_endpoint(method="POST")
 def predict_trade_candidates(payload: Dict[str, Any]):
-    candidates = payload.get("candidates") or []
+    candidates = payload.get("candidates")
     if not isinstance(candidates, list):
         candidate = payload.get("candidate")
         candidates = [candidate] if isinstance(candidate, dict) else []
+    else:
+        candidates = list(candidates or [])
     signals = [_predict_one(c) for c in candidates if isinstance(c, dict)]
     return {
         "model": MODEL_NAME,

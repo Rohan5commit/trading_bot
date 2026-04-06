@@ -117,7 +117,7 @@ ai_trading:
     inference_url: ""
     inference_url_env: "TRAINED_MODEL_INFERENCE_URL"
     api_key_env: "TRAINED_MODEL_API_KEY"
-    timeout_seconds: 60
+    timeout_seconds: 600
     model_name: "quant-trained-trading-model"
 
 
