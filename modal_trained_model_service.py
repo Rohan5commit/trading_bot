@@ -147,7 +147,7 @@ def _predict_one(candidate: Dict[str, Any]) -> Dict[str, Any]:
     timeout=3600,
     volumes={"/artifacts": volume},
 )
-@modal.web_endpoint(method="POST")
+@modal.fastapi_endpoint(method="POST")
 def predict_trade_candidates(payload: Dict[str, Any]):
     candidates = payload.get("candidates") or []
     if not isinstance(candidates, list):
