@@ -118,11 +118,7 @@ ai_trading:
     inference_url_env: "TRAINED_MODEL_INFERENCE_URL"
     api_key_env: "TRAINED_MODEL_API_KEY"
     timeout_seconds: 60
-    base_model: "Qwen/Qwen2.5-7B-Instruct"
-    adapter_dir: "./models/lora_solid_adapter"
-    max_new_tokens: 64
-    temperature: 0.0
-    cpu_threads: 4
+    model_name: "quant-trained-trading-model"
 
 
 
