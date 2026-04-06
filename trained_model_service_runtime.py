@@ -78,9 +78,15 @@ def _download_adapter_archive() -> Path:
     headers = {}
     if ADAPTER_ARCHIVE_TOKEN:
         headers["Authorization"] = f"Bearer {ADAPTER_ARCHIVE_TOKEN}"
-    response = requests.get(ADAPTER_ARCHIVE_URL, headers=headers, timeout=120)
-    response.raise_for_status()
-    archive_path.write_bytes(response.content)
+    if ADAPTER_ARCHIVE_URL.startswith("https://api.github.com/") and "/releases/assets/" in ADAPTER_ARCHIVE_URL:
+        headers.setdefault("Accept", "application/octet-stream")
+        headers.setdefault("X-GitHub-Api-Version", "2022-11-28")
+    with requests.get(ADAPTER_ARCHIVE_URL, headers=headers, timeout=120, stream=True) as response:
+        response.raise_for_status()
+        with archive_path.open("wb") as handle:
+            for chunk in response.iter_content(chunk_size=1024 * 1024):
+                if chunk:
+                    handle.write(chunk)
     shutil.rmtree(extract_root, ignore_errors=True)
     extract_root.mkdir(parents=True, exist_ok=True)
     if tarfile.is_tarfile(archive_path):
