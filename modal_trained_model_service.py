@@ -95,6 +95,9 @@ def _candidate_prompt(candidate: Dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+LABEL_RE = re.compile(r"\\b(STRONG_BUY|BUY|NEUTRAL|SELL|STRONG_SELL)\\b", re.IGNORECASE)
+
+
 def _extract_json(text: str):
     if not text:
         return None
@@ -109,8 +112,17 @@ def _extract_json(text: str):
         try:
             return json.loads(text[start : end + 1])
         except Exception:
-            return None
+            pass
     return None
+
+
+def _parse_plain_label(text: str):
+    if not text:
+        return None
+    match = LABEL_RE.search(str(text))
+    if not match:
+        return None
+    return {"label": match.group(1).upper(), "confidence": 0.5, "reason": str(text).strip()}
 
 
 def _predict_one(candidate: Dict[str, Any]) -> Dict[str, Any]:
@@ -138,7 +150,7 @@ def _predict_one(candidate: Dict[str, Any]) -> Dict[str, Any]:
             pad_token_id=tokenizer.eos_token_id,
         )
     text = tokenizer.decode(generated[0][input_len:], skip_special_tokens=True).strip()
-    parsed = _extract_json(text) or {"label": "NEUTRAL", "confidence": 0.5, "reason": text or "No parsable output."}
+    parsed = _extract_json(text) or _parse_plain_label(text) or {"label": "NEUTRAL", "confidence": 0.5, "reason": text or "No parsable output."}
     parsed["symbol"] = candidate.get("symbol")
     return parsed
 
