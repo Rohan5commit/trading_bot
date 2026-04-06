@@ -4,14 +4,78 @@ from datetime import datetime
 
 import pandas as pd
 import yaml
+import yfinance as yf
 
 from ingest_prices import PriceIngestor
 from llm_trader import propose_trades_with_llm
 
 
+REQUIRED_PRICE_COLUMNS = ["date", "open", "high", "low", "close", "volume"]
+
+
 def load_config(path="config.yaml"):
     with open(path, "r") as handle:
         return yaml.safe_load(handle)
+
+
+def _normalize_prices(symbol, prices_df):
+    if prices_df is None:
+        return None
+    df = prices_df.copy()
+    if df.empty:
+        return None
+
+    if "date" not in df.columns:
+        df = df.reset_index()
+
+    normalized_columns = {}
+    for col in df.columns:
+        key = str(col).strip().lower().replace(" ", "_")
+        normalized_columns[col] = key
+    df = df.rename(columns=normalized_columns)
+
+    if "datetime" in df.columns and "date" not in df.columns:
+        df = df.rename(columns={"datetime": "date"})
+    if "adj_close" in df.columns and "close" not in df.columns:
+        df = df.rename(columns={"adj_close": "close"})
+
+    if "date" not in df.columns:
+        return None
+
+    if "volume" not in df.columns:
+        df["volume"] = 0
+    for col in ["open", "high", "low", "close"]:
+        if col not in df.columns:
+            return None
+
+    df["symbol"] = str(symbol or "").strip().upper()
+    return df[["symbol", *REQUIRED_PRICE_COLUMNS]]
+
+
+def _fetch_yfinance_daily(symbol):
+    ticker = yf.Ticker(symbol)
+    df = ticker.history(period="1y", interval="1d", auto_adjust=False)
+    return _normalize_prices(symbol, df)
+
+
+def fetch_candidate_prices(ingestor, symbol):
+    methods = [
+        ("twelvedata", lambda: ingestor.fetch_twelvedata_daily(symbol)),
+        ("yfinance", lambda: _fetch_yfinance_daily(symbol)),
+        ("stooq", lambda: ingestor.fetch_stooq_data(symbol)),
+    ]
+    errors = []
+    for source_name, loader in methods:
+        try:
+            df = loader()
+        except Exception as exc:
+            errors.append(f"{source_name}:{exc}")
+            continue
+        df = _normalize_prices(symbol, df)
+        if df is not None and not df.empty:
+            return df, source_name, None
+        errors.append(f"{source_name}:empty")
+    return None, None, "; ".join(errors)
 
 
 def compute_candidate(symbol, prices_df):
@@ -80,14 +144,15 @@ def build_candidates(config, tickers):
     candidates = []
     failures = []
     for symbol in tickers:
-        df = ingestor.fetch_stooq_data(symbol)
+        df, source_name, error = fetch_candidate_prices(ingestor, symbol)
         if df is None or df.empty:
-            failures.append({"symbol": symbol, "error": "no_price_data"})
+            failures.append({"symbol": symbol, "error": error or "no_price_data"})
             continue
         candidate = compute_candidate(symbol, df)
         if candidate is None:
-            failures.append({"symbol": symbol, "error": "insufficient_history"})
+            failures.append({"symbol": symbol, "error": f"insufficient_history:{source_name}"})
             continue
+        candidate["price_source"] = source_name
         candidates.append(candidate)
     return candidates, failures
 
@@ -113,6 +178,7 @@ def main():
         "candidate_failures": failures,
         "status": status,
         "trades": trades,
+        "price_sources": {c["symbol"]: c.get("price_source") for c in candidates},
     }
 
     os.makedirs("results", exist_ok=True)
