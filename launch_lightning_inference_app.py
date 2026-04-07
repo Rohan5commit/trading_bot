@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import re
+import subprocess
 import sys
 import time
 from typing import Any
@@ -33,8 +34,6 @@ from lightning_cloud_utils import (  # noqa: E402
 )
 
 from deploy_lightning_inference import _collect_env, _patch_lightning_dispatch_compat  # noqa: E402
-from lightning.app.runners.runtime import dispatch  # noqa: E402
-from lightning.app.runners.runtime_type import RuntimeType  # noqa: E402
 
 
 DEFAULT_APP_NAME = "trading-bot-lightning-inference"
@@ -125,11 +124,25 @@ def _wait_for_inference_url(
     *,
     timeout_seconds: int,
     require_health: bool,
+    dispatch_process: subprocess.Popen[str] | None = None,
 ) -> tuple[Any, str, dict[str, Any] | None, str]:
     deadline = time.time() + timeout_seconds
     last_error = "waiting for Lightning app URL"
     last_logs = ""
     while time.time() < deadline:
+        if dispatch_process is not None:
+            code = dispatch_process.poll()
+            if code not in (None, 0):
+                raise RuntimeError(
+                    json.dumps(
+                        {
+                            "error": "Lightning dispatch subprocess exited before inference URL discovery",
+                            "exit_code": code,
+                            "app_name": app_name,
+                        },
+                        indent=2,
+                    )
+                )
         app = _latest_app(client, project_id, app_name)
         if app is None:
             last_error = "Lightning app not found yet"
@@ -207,30 +220,56 @@ def main() -> None:
 
     entrypoint = ROOT_DIR / "lightning_trained_model_app.py"
     env_vars = _collect_env()
-    dispatch(
-        entrypoint,
-        RuntimeType.CLOUD,
-        start_server=False,
-        no_cache=False,
-        blocking=False,
-        open_ui=False,
-        name=args.app_name,
-        env_vars=env_vars,
-        secrets={},
-    )
-
-    app = wait_for_app(client, project.project_id, args.app_name, timeout_seconds=300, poll_seconds=10)
-    phase = phase_name(app) if app else ""
-    if app is None or phase not in ACTIVE_PHASES | TERMINAL_PHASES:
-        raise RuntimeError(f"Lightning app {args.app_name} did not appear after dispatch.")
-
-    app, inference_url, health, logs_text = _wait_for_inference_url(
-        client,
-        project.project_id,
+    dispatch_cmd = [
+        sys.executable,
+        str((ROOT_DIR / "quant_platform" / "scripts" / "lightning_cloud_dispatch.py").resolve()),
+        "--entrypoint",
+        str(entrypoint),
+        "--name",
         args.app_name,
-        timeout_seconds=args.timeout_seconds,
-        require_health=args.require_health,
+        "--blocking",
+        "false",
+        "--open-ui",
+        "false",
+        "--without-server",
+        "--force-running",
+    ]
+    for key, value in env_vars.items():
+        dispatch_cmd.extend(["--env", f"{key}={value}"])
+
+    dispatch_env = dict(os.environ)
+    dispatch_env.update(env_vars)
+    dispatch_proc: subprocess.Popen[str] | None = subprocess.Popen(
+        dispatch_cmd,
+        cwd=str(ROOT_DIR),
+        env=dispatch_env,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        text=True,
     )
+
+    try:
+        app = wait_for_app(client, project.project_id, args.app_name, timeout_seconds=300, poll_seconds=10)
+        phase = phase_name(app) if app else ""
+        if app is None or phase not in ACTIVE_PHASES | TERMINAL_PHASES:
+            raise RuntimeError(f"Lightning app {args.app_name} did not appear after dispatch.")
+
+        app, inference_url, health, logs_text = _wait_for_inference_url(
+            client,
+            project.project_id,
+            args.app_name,
+            timeout_seconds=args.timeout_seconds,
+            require_health=args.require_health,
+            dispatch_process=dispatch_proc,
+        )
+    finally:
+        if dispatch_proc is not None and dispatch_proc.poll() is None:
+            dispatch_proc.terminate()
+            try:
+                dispatch_proc.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                dispatch_proc.kill()
+                dispatch_proc.wait(timeout=5)
     payload = {
         "ok": True,
         "project_id": project.project_id,

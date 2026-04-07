@@ -3,6 +3,10 @@ name: AI Trading Smoke
 on:
   workflow_dispatch:
 
+concurrency:
+  group: ai-trading-smoke
+  cancel-in-progress: true
+
 jobs:
   ai-smoke:
     runs-on: ubuntu-latest
