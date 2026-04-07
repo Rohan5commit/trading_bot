@@ -41,9 +41,14 @@ class RootFlow(LightningFlow):
     def __init__(self) -> None:
         super().__init__()
         self.inference = TrainedModelInferenceWork()
+        self._last_reported_url = ""
 
     def run(self) -> None:
         self.inference.run()
+        inference_url = str(getattr(self.inference, "url", "") or "").strip()
+        if inference_url and inference_url != self._last_reported_url:
+            print(f"LIGHTNING_INFERENCE_URL={inference_url}", flush=True)
+            self._last_reported_url = inference_url
 
     def configure_layout(self):
         return [{"name": "trained-model-inference", "content": self.inference.url}]

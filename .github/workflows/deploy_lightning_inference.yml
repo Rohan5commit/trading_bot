@@ -6,7 +6,7 @@ on:
 jobs:
   deploy-lightning-inference:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     env:
       LIGHTNING_USERNAME: ${{ secrets.LIGHTNING_USERNAME }}
       LIGHTNING_API_KEY: ${{ secrets.LIGHTNING_API_KEY }}
@@ -16,6 +16,7 @@ jobs:
       TRAINED_MODEL_CPU_THREADS: "8"
       LIGHTNING_INFERENCE_COMPUTE_NAME: "cpu-medium"
       LIGHTNING_INFERENCE_DISK_GB: "80"
+      LIGHTNING_INFERENCE_PORT: "8000"
       TRAINED_MODEL_API_KEY: ${{ secrets.TRAINED_MODEL_API_KEY }}
       TRAINED_MODEL_ADAPTER_ARCHIVE_URL: ${{ secrets.TRAINED_MODEL_ADAPTER_ARCHIVE_URL }}
       TRAINED_MODEL_ADAPTER_ARCHIVE_TOKEN: ${{ secrets.TRAINED_MODEL_ADAPTER_ARCHIVE_TOKEN }}
@@ -37,4 +38,25 @@ jobs:
         run: python quant_platform/scripts/lightning_account_preflight.py
 
       - name: Deploy inference service
-        run: python deploy_lightning_inference.py
+        run: |
+          python launch_lightning_inference_app.py \
+            --app-name trading-bot-lightning-inference \
+            --replace-existing \
+            --timeout-seconds 2400 \
+            --status-out lightning-inference-status.json
+
+      - name: Show deployed inference URL
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          payload = json.loads(Path("lightning-inference-status.json").read_text())
+          print(json.dumps({"inference_url": payload.get("inference_url"), "app_id": payload.get("app_id")}, indent=2))
+          PY
+
+      - name: Upload deployment artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: lightning-inference-status
+          path: lightning-inference-status.json
+          retention-days: 7

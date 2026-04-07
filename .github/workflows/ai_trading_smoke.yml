@@ -6,7 +6,7 @@ on:
 jobs:
   ai-smoke:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 75
     env:
       PYTHONUNBUFFERED: "1"
       TWELVEDATA_API_KEYS: ${{ secrets.TWELVEDATA_API_KEYS }}
@@ -20,6 +20,9 @@ jobs:
       TRAINED_MODEL_BASE_MODEL: "Qwen/Qwen2.5-7B-Instruct"
       TRAINED_MODEL_NAME: "quant-trained-trading-model"
       TRAINED_MODEL_CPU_THREADS: "8"
+      LIGHTNING_INFERENCE_COMPUTE_NAME: "cpu-medium"
+      LIGHTNING_INFERENCE_DISK_GB: "80"
+      LIGHTNING_INFERENCE_PORT: "8000"
       TRAINED_MODEL_ADAPTER_ARCHIVE_URL: ${{ secrets.TRAINED_MODEL_ADAPTER_ARCHIVE_URL }}
       TRAINED_MODEL_ADAPTER_ARCHIVE_TOKEN: ${{ secrets.TRAINED_MODEL_ADAPTER_ARCHIVE_TOKEN }}
       TRAINED_MODEL_READY_TIMEOUT_SECONDS: "1200"
@@ -43,14 +46,12 @@ jobs:
           pip install -r requirements.txt
           pip install lightning-app==2.3.2 lightning-cloud==0.5.70
 
-      - name: Launch Lightning inference Studio
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
+      - name: Launch Lightning inference App
         run: |
-          python launch_lightning_inference_studio.py \
-            --config quant_platform/configs/lightning_inference_studio.yaml \
-            --allow-create \
-            --force-restart-instance \
+          python launch_lightning_inference_app.py \
+            --app-name trading-bot-lightning-inference \
+            --replace-existing \
+            --timeout-seconds 2400 \
             --status-out lightning-inference-status.json
 
       - name: Export Lightning inference URL
@@ -78,9 +79,9 @@ jobs:
       - name: Run AI-only smoke test
         run: python run_ai_trading_smoke.py
 
-      - name: Stop Lightning inference Studio
+      - name: Stop Lightning inference App
         if: always()
-        run: python stop_lightning_inference_studio.py --config quant_platform/configs/lightning_inference_studio.yaml
+        run: python stop_lightning_inference_app.py --app-name trading-bot-lightning-inference
 
       - name: Upload AI smoke artifacts
         if: always()
