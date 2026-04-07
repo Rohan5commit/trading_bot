@@ -67,6 +67,101 @@ def _wait_for_instance_phase(client, project_id: str, studio_id: str, *, phases:
     return None
 
 
+def _command_payload(result: Any) -> dict[str, Any]:
+    if hasattr(result, "to_dict"):
+        return json_safe(result.to_dict())
+    return json_safe(result)
+
+
+def _contains_setup_not_ready(payload: dict[str, Any] | None) -> bool:
+    if not payload:
+        return False
+    haystack = json.dumps(payload, sort_keys=True).lower()
+    return "still setting things up" in haystack or "progress bar at the top of the studio disappears" in haystack
+
+
+def _execute_checked(
+    client,
+    project_id: str,
+    studio_id: str,
+    *,
+    command: str,
+    session_name: str,
+    detached: bool,
+    max_attempts: int = 20,
+    retry_sleep_seconds: int = 30,
+):
+    last_payload: dict[str, Any] | None = None
+    for attempt in range(1, max_attempts + 1):
+        result = execute_studio_command(
+            client,
+            project_id,
+            studio_id,
+            command=command,
+            session_name=session_name,
+            detached=detached,
+        )
+        payload = _command_payload(result)
+        last_payload = payload
+        if detached:
+            if _contains_setup_not_ready(payload):
+                time.sleep(retry_sleep_seconds)
+                continue
+            return result
+        exit_code = payload.get("exit_code")
+        if _contains_setup_not_ready(payload):
+            time.sleep(retry_sleep_seconds)
+            continue
+        if exit_code in (0, None):
+            return result
+        raise RuntimeError(json.dumps(payload, indent=2))
+    raise RuntimeError(json.dumps({"error": "Studio command never became ready", "last_payload": last_payload}, indent=2))
+
+
+def _launch_service_session(
+    client,
+    project_id: str,
+    studio_id: str,
+    *,
+    command: str,
+    session_name: str,
+    max_attempts: int = 20,
+    retry_sleep_seconds: int = 30,
+):
+    last_status: dict[str, Any] | None = None
+    last_launch: dict[str, Any] | None = None
+    for attempt in range(1, max_attempts + 1):
+        launch = _execute_checked(
+            client,
+            project_id,
+            studio_id,
+            command=command,
+            session_name=session_name,
+            detached=True,
+            max_attempts=1,
+            retry_sleep_seconds=retry_sleep_seconds,
+        )
+        last_launch = _command_payload(launch)
+        session_status = wait_for_session_status(
+            client,
+            project_id,
+            studio_id,
+            session_name,
+            timeout_seconds=120,
+            poll_seconds=10,
+        ) or {"state": "unknown"}
+        last_status = session_status
+        if session_status.get("state") == "running":
+            return launch, session_status
+        if _contains_setup_not_ready(session_status):
+            time.sleep(retry_sleep_seconds)
+            continue
+        if session_status.get("state") == "failed":
+            raise RuntimeError(json.dumps({"launch": last_launch, "session": json_safe(session_status)}, indent=2))
+        time.sleep(retry_sleep_seconds)
+    raise RuntimeError(json.dumps({"error": "Studio service session never reached running", "launch": last_launch, "session": last_status}, indent=2))
+
+
 def _candidate_urls(studio_id: str, instance_payload: dict[str, Any], *, port: int) -> list[str]:
     tokens: list[str] = []
     for value in (
@@ -78,6 +173,9 @@ def _candidate_urls(studio_id: str, instance_payload: dict[str, Any], *, port: i
         if text and text not in tokens:
             tokens.append(text)
     urls: list[str] = []
+    app_url = str(instance_payload.get("app_url") or "").strip().rstrip("/")
+    if app_url:
+        urls.append(f"{app_url}/proxy/{port}")
     for token in tokens:
         candidate = f"https://{port}-{token}.cloudspaces.litng.ai"
         if candidate not in urls:
@@ -164,7 +262,7 @@ def main() -> None:
         )
 
     instance = ensure_studio_running(client, project.project_id, studio, config, timeout_seconds=600)
-    repo_sync = execute_studio_command(
+    repo_sync = _execute_checked(
         client,
         project.project_id,
         studio_id,
@@ -172,7 +270,7 @@ def main() -> None:
         session_name=f"{config.studio_session_name}-repo-sync-{int(time.time())}",
         detached=False,
     )
-    bootstrap = execute_studio_command(
+    bootstrap = _execute_checked(
         client,
         project.project_id,
         studio_id,
@@ -180,22 +278,13 @@ def main() -> None:
         session_name=f"{config.studio_session_name}-bootstrap-{int(time.time())}",
         detached=False,
     )
-    launch = execute_studio_command(
+    launch, session_status = _launch_service_session(
         client,
         project.project_id,
         studio_id,
         command=_build_service_command(config),
         session_name=config.studio_session_name,
-        detached=True,
     )
-    session_status = wait_for_session_status(
-        client,
-        project.project_id,
-        studio_id,
-        config.studio_session_name,
-        timeout_seconds=90,
-        poll_seconds=5,
-    ) or {"state": "unknown"}
     instance = resolve_studio_instance(client, project.project_id, studio_id)
     instance_payload = _instance_payload(instance)
     service_port = _service_port(config)
