@@ -19,7 +19,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException
 
 BASE_MODEL = os.getenv("TRAINED_MODEL_BASE_MODEL", "Qwen/Qwen2.5-7B-Instruct")
 MODEL_NAME = os.getenv("TRAINED_MODEL_NAME", "quant-trained-trading-model")
-CPU_THREADS = max(1, int(os.getenv("TRAINED_MODEL_CPU_THREADS", os.getenv("TRAINED_MODEL_CPU", "8")) or 8))
+CPU_THREADS = max(1, int(os.getenv("TRAINED_MODEL_CPU_THREADS", os.getenv("TRAINED_MODEL_CPU", "4")) or 4))
 ADAPTER_PATH = os.getenv("TRAINED_MODEL_ADAPTER_PATH", "").strip()
 ADAPTER_ARCHIVE_URL = os.getenv("TRAINED_MODEL_ADAPTER_ARCHIVE_URL", "").strip()
 ADAPTER_ARCHIVE_TOKEN = os.getenv("TRAINED_MODEL_ADAPTER_ARCHIVE_TOKEN", "").strip()
@@ -32,6 +32,11 @@ _TOKENIZER = None
 _TORCH = None
 _ADAPTER_DIR = None
 _LOAD_ERROR = None
+
+
+def _env_flag(name: str, default: bool = False) -> bool:
+    value = str(os.getenv(name, "1" if default else "0") or "").strip().lower()
+    return value in {"1", "true", "yes", "on"}
 
 
 def _disable_torchvision_discovery() -> None:
@@ -266,6 +271,10 @@ def _load_runtime():
         from transformers import AutoModelForCausalLM, AutoTokenizer
 
         torch.set_num_threads(CPU_THREADS)
+        try:
+            torch.set_num_interop_threads(1)
+        except Exception:
+            pass
         _patch_peft_lora_config_compat()
         adapter_dir = _ensure_adapter_dir()
         tokenizer = AutoTokenizer.from_pretrained(BASE_MODEL, trust_remote_code=True)
@@ -278,6 +287,13 @@ def _load_runtime():
             torch_dtype="auto",
         )
         model = PeftModel.from_pretrained(model, str(adapter_dir), is_trainable=False)
+        if _env_flag("TRAINED_MODEL_MERGE_ADAPTER", default=True) and hasattr(model, "merge_and_unload"):
+            model = model.merge_and_unload()
+        if _env_flag("TRAINED_MODEL_DYNAMIC_QUANTIZE", default=True):
+            try:
+                model = torch.quantization.quantize_dynamic(model, {torch.nn.Linear}, dtype=torch.qint8)
+            except Exception:
+                pass
         model.eval()
         _MODEL = model
         _TOKENIZER = tokenizer

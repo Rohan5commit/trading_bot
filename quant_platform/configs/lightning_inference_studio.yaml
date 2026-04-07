@@ -2,7 +2,7 @@ app_name: trading-bot-lightning-inference
 studio_name: trading-bot-inference
 studio_auto_discover_free: false
 studio_cluster_id: gcp-lightning-public-prod
-studio_compute_name: cpu-medium
+studio_compute_name: cpu-4
 studio_disk_size_gb: 80
 studio_ide: jupyterlab
 studio_auto_start_ports:
