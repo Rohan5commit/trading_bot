@@ -254,7 +254,7 @@ def main() -> None:
     if instance is None:
         raise RuntimeError("Lightning Studio does not have an active instance.")
 
-    session_name = f"{config.studio_session_name}-ai-smoke"
+    session_name = f"{config.studio_session_name}-ai-smoke-{int(time.time())}"
     payload = _launch_detached_session(
         client,
         project.project_id,
