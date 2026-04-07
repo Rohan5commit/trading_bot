@@ -262,7 +262,8 @@ def _build_local_health_command(port: int) -> str:
             "raise SystemExit(1)",
         ]
     )
-    return f"bash -lc {shlex.quote(f\"python - <<'PY'\\n{script}\\nPY\")}"
+    command = "python - <<'PY'\n" + script + "\nPY"
+    return f"bash -lc {shlex.quote(command)}"
 
 
 def _wait_for_local_health(client, project_id: str, studio_id: str, *, port: int, session_name: str) -> dict[str, Any]:
