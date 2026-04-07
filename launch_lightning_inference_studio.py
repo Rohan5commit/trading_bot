@@ -37,6 +37,14 @@ from lightning_studio_utils import (  # noqa: E402
 RUNNING_PHASE = "CLOUD_SPACE_INSTANCE_STATE_RUNNING"
 
 
+def _resolved_project_id() -> str | None:
+    for key in ("LIGHTNING_CLOUD_PROJECT_ID", "LIGHTNING_PROJECT_ID"):
+        value = str(os.getenv(key) or "").strip()
+        if value:
+            return value
+    return None
+
+
 def _service_port(config) -> int:
     override = str(os.getenv("LIGHTNING_INFERENCE_PORT") or "").strip()
     if override:
@@ -236,7 +244,7 @@ def main() -> None:
     os.environ.update(auth_env)
     set_process_env(auth_env)
     ensure_studio_auth_env()
-    client, project = get_client_and_project()
+    client, project = get_client_and_project(project_id=_resolved_project_id())
 
     studio = ensure_studio_exists(client, project.project_id, config, allow_create=args.allow_create)
     studio_id = str(getattr(studio, "id", "") or "").strip()

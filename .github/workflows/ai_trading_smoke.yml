@@ -20,6 +20,7 @@ jobs:
       LIGHTNING_API_KEY: ${{ secrets.LIGHTNING_API_KEY }}
       LIGHTNING_USER_ID: ${{ secrets.LIGHTNING_USER_ID }}
       LIGHTNING_CLOUD_PROJECT_ID: "01kkqt8mzptzp8svph6p4nt915"
+      GITHUB_TOKEN: ${{ github.token }}
       TRAINED_MODEL_INFERENCE_URL: ${{ secrets.TRAINED_MODEL_INFERENCE_URL }}
       TRAINED_MODEL_API_KEY: ${{ secrets.TRAINED_MODEL_API_KEY }}
       TRAINED_MODEL_BASE_MODEL: "Qwen/Qwen2.5-7B-Instruct"
@@ -51,12 +52,11 @@ jobs:
           pip install -r requirements.txt
           pip install "lightning[app]==2.3.2" lightning-cloud==0.5.70
 
-      - name: Launch Lightning inference App
+      - name: Launch Lightning inference Studio
         run: |
-          python launch_lightning_inference_app.py \
-            --app-name trading-bot-lightning-inference \
-            --replace-existing \
-            --timeout-seconds 2400 \
+          python launch_lightning_inference_studio.py \
+            --config quant_platform/configs/lightning_inference_studio.yaml \
+            --allow-create \
             --status-out lightning-inference-status.json
 
       - name: Export Lightning inference URL
@@ -84,9 +84,9 @@ jobs:
       - name: Run AI-only smoke test
         run: python run_ai_trading_smoke.py
 
-      - name: Stop Lightning inference App
+      - name: Stop Lightning inference Studio
         if: always()
-        run: python stop_lightning_inference_app.py --app-name trading-bot-lightning-inference
+        run: python stop_lightning_inference_studio.py --config quant_platform/configs/lightning_inference_studio.yaml
 
       - name: Upload AI smoke artifacts
         if: always()

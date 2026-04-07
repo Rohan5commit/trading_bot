@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
 import sys
 import time
@@ -16,6 +17,14 @@ from lightning_cloud_utils import ensure_auth_env, json_safe, set_process_env  #
 from lightning_studio_utils import ensure_studio_auth_env, get_client_and_project, load_studio_config, resolve_studio, resolve_studio_instance  # noqa: E402
 
 
+def _resolved_project_id() -> str | None:
+    for key in ("LIGHTNING_CLOUD_PROJECT_ID", "LIGHTNING_PROJECT_ID"):
+        value = str(os.getenv(key) or "").strip()
+        if value:
+            return value
+    return None
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", default="quant_platform/configs/lightning_inference_studio.yaml")
@@ -24,7 +33,7 @@ def main() -> None:
     auth_env = ensure_auth_env()
     set_process_env(auth_env)
     ensure_studio_auth_env()
-    client, project = get_client_and_project()
+    client, project = get_client_and_project(project_id=_resolved_project_id())
     config = load_studio_config(args.config)
     studio = resolve_studio(client, project.project_id, config)
     if studio is None:
