@@ -4,9 +4,6 @@ from datetime import datetime
 
 import pandas as pd
 import yaml
-import yfinance as yf
-
-from ingest_prices import PriceIngestor
 from llm_trader import propose_trades_with_llm
 
 
@@ -53,6 +50,8 @@ def _normalize_prices(symbol, prices_df):
 
 
 def _fetch_yfinance_daily(symbol):
+    import yfinance as yf
+
     ticker = yf.Ticker(symbol)
     df = ticker.history(period="1y", interval="1d", auto_adjust=False)
     return _normalize_prices(symbol, df)
@@ -140,6 +139,8 @@ def compute_candidate(symbol, prices_df):
 
 
 def build_candidates(config, tickers):
+    from ingest_prices import PriceIngestor
+
     ingestor = PriceIngestor()
     candidates = []
     failures = []
