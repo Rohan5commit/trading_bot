@@ -5,8 +5,8 @@ import json
 import os
 from pathlib import Path
 import re
-import subprocess
 import sys
+import threading
 import time
 from typing import Any
 
@@ -34,6 +34,12 @@ from lightning_cloud_utils import (  # noqa: E402
 )
 
 from deploy_lightning_inference import _collect_env, _patch_lightning_dispatch_compat  # noqa: E402
+try:  # noqa: E402
+    from lightning.app.runners.runtime import dispatch
+    from lightning.app.runners.runtime_type import RuntimeType
+except ModuleNotFoundError:  # noqa: E402
+    from lightning_app.runners.runtime import dispatch
+    from lightning_app.runners.runtime_type import RuntimeType
 
 
 DEFAULT_APP_NAME = "trading-bot-lightning-inference"
@@ -124,20 +130,21 @@ def _wait_for_inference_url(
     *,
     timeout_seconds: int,
     require_health: bool,
-    dispatch_process: subprocess.Popen[str] | None = None,
+    dispatch_thread: threading.Thread | None = None,
+    dispatch_state: dict[str, Any] | None = None,
 ) -> tuple[Any, str, dict[str, Any] | None, str]:
     deadline = time.time() + timeout_seconds
     last_error = "waiting for Lightning app URL"
     last_logs = ""
     while time.time() < deadline:
-        if dispatch_process is not None:
-            code = dispatch_process.poll()
-            if code not in (None, 0):
+        if dispatch_thread is not None and dispatch_state is not None and not dispatch_thread.is_alive():
+            exc_text = str(dispatch_state.get("error") or "").strip()
+            if exc_text:
                 raise RuntimeError(
                     json.dumps(
                         {
-                            "error": "Lightning dispatch subprocess exited before inference URL discovery",
-                            "exit_code": code,
+                            "error": "Lightning dispatch thread failed before inference URL discovery",
+                            "dispatch_error": exc_text,
                             "app_name": app_name,
                         },
                         indent=2,
@@ -220,56 +227,41 @@ def main() -> None:
 
     entrypoint = ROOT_DIR / "lightning_trained_model_app.py"
     env_vars = _collect_env()
-    dispatch_cmd = [
-        sys.executable,
-        str((ROOT_DIR / "quant_platform" / "scripts" / "lightning_cloud_dispatch.py").resolve()),
-        "--entrypoint",
-        str(entrypoint),
-        "--name",
+    dispatch_state: dict[str, Any] = {}
+
+    def _dispatch_target() -> None:
+        try:
+            dispatch(
+                entrypoint,
+                RuntimeType.CLOUD,
+                start_server=False,
+                no_cache=False,
+                blocking=False,
+                open_ui=False,
+                name=args.app_name,
+                env_vars=env_vars,
+                secrets={},
+            )
+        except Exception as exc:  # noqa: BLE001
+            dispatch_state["error"] = repr(exc)
+
+    dispatch_thread = threading.Thread(target=_dispatch_target, name="lightning-dispatch", daemon=True)
+    dispatch_thread.start()
+
+    app = wait_for_app(client, project.project_id, args.app_name, timeout_seconds=300, poll_seconds=10)
+    phase = phase_name(app) if app else ""
+    if app is None or phase not in ACTIVE_PHASES | TERMINAL_PHASES:
+        raise RuntimeError(f"Lightning app {args.app_name} did not appear after dispatch.")
+
+    app, inference_url, health, logs_text = _wait_for_inference_url(
+        client,
+        project.project_id,
         args.app_name,
-        "--blocking",
-        "false",
-        "--open-ui",
-        "false",
-        "--without-server",
-        "--force-running",
-    ]
-    for key, value in env_vars.items():
-        dispatch_cmd.extend(["--env", f"{key}={value}"])
-
-    dispatch_env = dict(os.environ)
-    dispatch_env.update(env_vars)
-    dispatch_proc: subprocess.Popen[str] | None = subprocess.Popen(
-        dispatch_cmd,
-        cwd=str(ROOT_DIR),
-        env=dispatch_env,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        text=True,
+        timeout_seconds=args.timeout_seconds,
+        require_health=args.require_health,
+        dispatch_thread=dispatch_thread,
+        dispatch_state=dispatch_state,
     )
-
-    try:
-        app = wait_for_app(client, project.project_id, args.app_name, timeout_seconds=300, poll_seconds=10)
-        phase = phase_name(app) if app else ""
-        if app is None or phase not in ACTIVE_PHASES | TERMINAL_PHASES:
-            raise RuntimeError(f"Lightning app {args.app_name} did not appear after dispatch.")
-
-        app, inference_url, health, logs_text = _wait_for_inference_url(
-            client,
-            project.project_id,
-            args.app_name,
-            timeout_seconds=args.timeout_seconds,
-            require_health=args.require_health,
-            dispatch_process=dispatch_proc,
-        )
-    finally:
-        if dispatch_proc is not None and dispatch_proc.poll() is None:
-            dispatch_proc.terminate()
-            try:
-                dispatch_proc.wait(timeout=10)
-            except subprocess.TimeoutExpired:
-                dispatch_proc.kill()
-                dispatch_proc.wait(timeout=5)
     payload = {
         "ok": True,
         "project_id": project.project_id,
