@@ -266,6 +266,19 @@ def _build_local_health_command(port: int) -> str:
     return f"bash -lc {shlex.quote(command)}"
 
 
+def _build_stop_service_command(port: int) -> str:
+    script = "\n".join(
+        [
+            "set -euo pipefail",
+            f"for pid in $(lsof -ti tcp:{port} 2>/dev/null || true); do kill \"$pid\" 2>/dev/null || true; done",
+            "sleep 2",
+            f"for pid in $(lsof -ti tcp:{port} 2>/dev/null || true); do kill -9 \"$pid\" 2>/dev/null || true; done",
+            f"lsof -ti tcp:{port} 2>/dev/null || true",
+        ]
+    )
+    return f"bash -lc {shlex.quote(script)}"
+
+
 def _wait_for_local_health(client, project_id: str, studio_id: str, *, port: int, session_name: str) -> dict[str, Any]:
     result = _execute_checked(
         client,
@@ -296,6 +309,20 @@ def _probe_local_health(client, project_id: str, studio_id: str, *, port: int, s
         )
     except Exception:
         return None
+
+
+def _stop_existing_service_processes(client, project_id: str, studio_id: str, *, port: int, session_name: str) -> dict[str, Any]:
+    result = _execute_checked(
+        client,
+        project_id,
+        studio_id,
+        command=_build_stop_service_command(port),
+        session_name=session_name,
+        detached=False,
+        max_attempts=1,
+        retry_sleep_seconds=5,
+    )
+    return _command_payload(result)
 
 
 def _build_service_command(config) -> str:
@@ -393,6 +420,15 @@ def main() -> None:
         }
         session_status = existing_service_session
     else:
+        cleanup = None
+        if existing_service_session:
+            cleanup = _stop_existing_service_processes(
+                client,
+                project.project_id,
+                studio_id,
+                port=service_port,
+                session_name=f"{config.studio_session_name}-cleanup-{int(time.time())}",
+            )
         try:
             launch, session_status = _launch_service_session(
                 client,
@@ -402,23 +438,40 @@ def main() -> None:
                 session_name=config.studio_session_name,
             )
         except RuntimeError as exc:
-            recovered_local_health = _probe_local_health(
-                client,
-                project.project_id,
-                studio_id,
-                port=service_port,
-                session_name=f"{config.studio_session_name}-recover-health-{int(time.time())}",
-            )
-            if recovered_local_health and recovered_local_health.get("ok") is True:
-                launch = {
-                    "reused_existing_service_after_launch_error": True,
-                    "session_name": config.studio_session_name,
-                    "launch_error": str(exc),
-                }
-                session_status = existing_service_session or {"state": "running"}
-                local_health = recovered_local_health
+            if "address already in use" in str(exc).lower():
+                cleanup = _stop_existing_service_processes(
+                    client,
+                    project.project_id,
+                    studio_id,
+                    port=service_port,
+                    session_name=f"{config.studio_session_name}-cleanup-retry-{int(time.time())}",
+                )
+                launch, session_status = _launch_service_session(
+                    client,
+                    project.project_id,
+                    studio_id,
+                    command=_build_service_command(config),
+                    session_name=config.studio_session_name,
+                )
+                local_health = None
             else:
-                raise
+                recovered_local_health = _probe_local_health(
+                    client,
+                    project.project_id,
+                    studio_id,
+                    port=service_port,
+                    session_name=f"{config.studio_session_name}-recover-health-{int(time.time())}",
+                )
+                if recovered_local_health and recovered_local_health.get("ok") is True:
+                    launch = {
+                        "reused_existing_service_after_launch_error": True,
+                        "session_name": config.studio_session_name,
+                        "launch_error": str(exc),
+                    }
+                    session_status = existing_service_session or {"state": "running"}
+                    local_health = recovered_local_health
+                else:
+                    raise
     instance = resolve_studio_instance(client, project.project_id, studio_id)
     instance_payload = _instance_payload(instance)
     candidate_urls = _candidate_urls(studio_id, instance_payload, port=service_port)
@@ -456,6 +509,7 @@ def main() -> None:
             "repo_sync": _strip_output_fields(json_safe(repo_sync.to_dict() if hasattr(repo_sync, "to_dict") else repo_sync)),
             "bootstrap": _strip_output_fields(json_safe(bootstrap.to_dict() if hasattr(bootstrap, "to_dict") else bootstrap)),
             "launch": _strip_output_fields(json_safe(launch.to_dict() if hasattr(launch, "to_dict") else launch)),
+            "cleanup": _strip_output_fields(json_safe(cleanup)) if 'cleanup' in locals() and cleanup is not None else None,
             "local_health": local_health,
             "candidate_urls": candidate_urls,
             "inference_url": active_url,
@@ -491,6 +545,7 @@ def main() -> None:
         "repo_sync": _strip_output_fields(json_safe(repo_sync.to_dict() if hasattr(repo_sync, "to_dict") else repo_sync)),
         "bootstrap": _strip_output_fields(json_safe(bootstrap.to_dict() if hasattr(bootstrap, "to_dict") else bootstrap)),
         "launch": _strip_output_fields(json_safe(launch.to_dict() if hasattr(launch, "to_dict") else launch)),
+        "cleanup": _strip_output_fields(json_safe(cleanup)) if 'cleanup' in locals() and cleanup is not None else None,
         "local_health": local_health,
         "candidate_urls": candidate_urls,
         "inference_url": active_url,
