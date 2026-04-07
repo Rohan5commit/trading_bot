@@ -394,18 +394,68 @@ def main() -> None:
         detached=False,
     )
     service_port = _service_port(config)
+    instance = resolve_studio_instance(client, project.project_id, studio_id)
+    instance_payload = _instance_payload(instance)
+    candidate_urls = _candidate_urls(studio_id, instance_payload, port=service_port)
+    existing_service_session = get_session_status(
+        client,
+        project.project_id,
+        studio_id,
+        config.studio_session_name,
+    )
+    if args.skip_public_health_check:
+        cleanup = _stop_existing_service_processes(
+            client,
+            project.project_id,
+            studio_id,
+            port=service_port,
+            session_name=f"{config.studio_session_name}-cleanup-{int(time.time())}",
+        )
+        launch = _execute_checked(
+            client,
+            project.project_id,
+            studio_id,
+            command=_build_service_command(config),
+            session_name=config.studio_session_name,
+            detached=True,
+            max_attempts=1,
+            retry_sleep_seconds=5,
+        )
+        session_status = get_session_status(
+            client,
+            project.project_id,
+            studio_id,
+            config.studio_session_name,
+        ) or {"state": "launch_requested"}
+        report = {
+            "project_id": project.project_id,
+            "project_name": project.name,
+            "studio_id": studio_id,
+            "studio_name": str(getattr(studio, "name", "") or ""),
+            "instance": instance_payload,
+            "session": _strip_output_fields(json_safe(session_status)),
+            "repo_sync": _strip_output_fields(json_safe(repo_sync.to_dict() if hasattr(repo_sync, "to_dict") else repo_sync)),
+            "bootstrap": _strip_output_fields(json_safe(bootstrap.to_dict() if hasattr(bootstrap, "to_dict") else bootstrap)),
+            "launch": _strip_output_fields(json_safe(launch.to_dict() if hasattr(launch, "to_dict") else launch)),
+            "cleanup": _strip_output_fields(json_safe(cleanup)),
+            "local_health": None,
+            "candidate_urls": candidate_urls,
+            "inference_url": candidate_urls[0] if candidate_urls else "",
+            "public_health_check_skipped": True,
+            "launch_detached_only": True,
+        }
+        payload = json.dumps(json_safe(report), indent=2)
+        print(payload)
+        if args.status_out:
+            Path(args.status_out).write_text(payload + "\n")
+        return
+
     local_health = _probe_local_health(
         client,
         project.project_id,
         studio_id,
         port=service_port,
         session_name=f"{config.studio_session_name}-preflight-health-{int(time.time())}",
-    )
-    existing_service_session = get_session_status(
-        client,
-        project.project_id,
-        studio_id,
-        config.studio_session_name,
     )
     if local_health and local_health.get("ok") is True:
         launch = {
