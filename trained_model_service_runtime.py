@@ -371,7 +371,7 @@ def _normalize_candidates(payload: Dict[str, Any]) -> List[dict]:
 app = FastAPI(title=MODEL_NAME)
 
 
-@app.get("/health", dependencies=[Depends(_require_api_key)])
+@app.get("/health")
 def health() -> dict[str, Any]:
     try:
         adapter_dir = _ensure_adapter_dir()
