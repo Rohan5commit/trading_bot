@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import shlex
 import sys
+import time
 from typing import Any
 
 
@@ -19,6 +20,7 @@ from lightning_studio_utils import (  # noqa: E402
     ensure_studio_auth_env,
     execute_studio_command,
     get_client_and_project,
+    get_session_status,
     load_studio_config,
     resolve_studio,
     resolve_studio_instance,
@@ -58,6 +60,26 @@ def _checked_execute(client, project_id: str, studio_id: str, *, command: str, s
     if exit_code not in (0, None):
         raise RuntimeError(json.dumps(payload, indent=2))
     return payload
+
+
+def _collect_command_output(client, project_id: str, studio_id: str, session_name: str, payload: dict[str, Any]) -> tuple[str, dict[str, Any] | None]:
+    output = str(payload.get("output") or "")
+    if RESULT_BEGIN in output and RESULT_END in output:
+        return output, None
+    last_status = None
+    for _ in range(12):
+        status = get_session_status(client, project_id, studio_id, session_name)
+        if status is not None:
+            last_status = status
+            candidate_output = str(status.get("output") or "")
+            if candidate_output:
+                output = candidate_output
+            if RESULT_BEGIN in output and RESULT_END in output:
+                return output, last_status
+            if status.get("state") in {"completed", "failed"}:
+                break
+        time.sleep(5)
+    return output, last_status
 
 
 def _service_port(config) -> int:
@@ -148,7 +170,22 @@ def main() -> None:
         command=_build_smoke_command(config, service_port=_service_port(config)),
         session_name=f"{config.studio_session_name}-ai-smoke",
     )
-    result_path, result_payload = _extract_result(str(payload.get("output") or ""))
+    session_name = f"{config.studio_session_name}-ai-smoke"
+    output_text, session_status = _collect_command_output(client, project.project_id, studio_id, session_name, payload)
+    try:
+        result_path, result_payload = _extract_result(output_text)
+    except Exception as exc:  # noqa: BLE001
+        raise RuntimeError(
+            json.dumps(
+                {
+                    "error": str(exc),
+                    "payload": payload,
+                    "session_status": session_status,
+                    "output_tail": output_text[-4000:],
+                },
+                indent=2,
+            )
+        ) from exc
 
     out_path = Path(args.result_out)
     out_path.parent.mkdir(parents=True, exist_ok=True)
