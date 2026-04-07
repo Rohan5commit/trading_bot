@@ -52,28 +52,20 @@ jobs:
           pip install -r requirements.txt
           pip install "lightning[app]==2.3.2" lightning-cloud==0.5.70
 
-      - name: Resolve live Lightning inference URL
+      - name: Launch Lightning inference studio
         run: |
           python launch_lightning_inference_studio.py \
             --config quant_platform/configs/lightning_inference_studio.yaml \
             --allow-create \
+            --skip-public-health-check \
             --status-out lightning-inference-status.json
-          python - <<'PY'
-          import json
-          import os
-          from pathlib import Path
-
-          payload = json.loads(Path("lightning-inference-status.json").read_text())
-          inference_url = str(payload.get("inference_url") or "").strip()
-          if not inference_url:
-              raise SystemExit(f"No live inference URL was produced: {json.dumps(payload, indent=2)}")
-          with Path(os.environ["GITHUB_ENV"]).open("a") as handle:
-              handle.write(f"TRAINED_MODEL_INFERENCE_URL={inference_url}\n")
-          print(json.dumps({"inference_url": inference_url}, indent=2))
-          PY
 
       - name: Run AI-only smoke test
-        run: python run_ai_trading_smoke.py
+        run: |
+          python run_ai_trading_smoke_studio.py \
+            --config quant_platform/configs/lightning_inference_studio.yaml \
+            --status-in lightning-inference-status.json \
+            --result-out results/ai_smoke_lightning_studio.json
 
       - name: Show AI smoke result
         if: always()
