@@ -118,7 +118,14 @@ def _candidate_urls(client, project_id: str, app, logs_text: str) -> list[str]:
     return urls
 
 
-def _wait_for_inference_url(client, project_id: str, app_name: str, *, timeout_seconds: int) -> tuple[Any, str, dict[str, Any], str]:
+def _wait_for_inference_url(
+    client,
+    project_id: str,
+    app_name: str,
+    *,
+    timeout_seconds: int,
+    require_health: bool,
+) -> tuple[Any, str, dict[str, Any] | None, str]:
     deadline = time.time() + timeout_seconds
     last_error = "waiting for Lightning app URL"
     last_logs = ""
@@ -131,6 +138,8 @@ def _wait_for_inference_url(client, project_id: str, app_name: str, *, timeout_s
         logs_text = collect_logs_text(client, project_id, str(getattr(app, "id", "")), max_pages=4)
         last_logs = logs_text
         for candidate in _candidate_urls(client, project_id, app, logs_text):
+            if not require_health:
+                return app, candidate, None, logs_text
             try:
                 health = _poll_health(candidate)
                 return app, candidate, health, logs_text
@@ -168,6 +177,7 @@ def main() -> None:
     parser.add_argument("--status-out", default="")
     parser.add_argument("--replace-existing", action="store_true")
     parser.add_argument("--timeout-seconds", type=int, default=1800)
+    parser.add_argument("--require-health", action="store_true")
     args = parser.parse_args()
 
     auth_env = ensure_auth_env()
@@ -203,6 +213,7 @@ def main() -> None:
         project.project_id,
         args.app_name,
         timeout_seconds=args.timeout_seconds,
+        require_health=args.require_health,
     )
     payload = {
         "ok": True,
