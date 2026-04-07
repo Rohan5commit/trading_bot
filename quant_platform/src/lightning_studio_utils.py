@@ -25,7 +25,7 @@ from lightning_cloud_utils import (
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 DEFAULT_STUDIO_CLUSTER_ID = "gcp-lightning-public-prod"
-DEFAULT_STUDIO_COMPUTE_NAME = "cpu-4"
+DEFAULT_STUDIO_COMPUTE_NAME = "cpu-medium"
 DEFAULT_STUDIO_DISK_SIZE_GB = 400
 DEFAULT_STUDIO_IDE = "jupyterlab"
 DEFAULT_STUDIO_REPO_URL = "https://github.com/Rohan5commit/train-once-quant-platform.git"
