@@ -285,6 +285,19 @@ def _wait_for_local_health(client, project_id: str, studio_id: str, *, port: int
         return {"raw_output": raw_output}
 
 
+def _probe_local_health(client, project_id: str, studio_id: str, *, port: int, session_name: str) -> dict[str, Any] | None:
+    try:
+        return _wait_for_local_health(
+            client,
+            project_id,
+            studio_id,
+            port=port,
+            session_name=session_name,
+        )
+    except Exception:
+        return None
+
+
 def _build_service_command(config) -> str:
     exports = [f"export {key}={shlex.quote(value)}" for key, value in config.run.app_env.items()]
     script_lines = [
@@ -353,13 +366,27 @@ def main() -> None:
         session_name=f"{config.studio_session_name}-bootstrap-{int(time.time())}",
         detached=False,
     )
+    service_port = _service_port(config)
+    local_health = _probe_local_health(
+        client,
+        project.project_id,
+        studio_id,
+        port=service_port,
+        session_name=f"{config.studio_session_name}-preflight-health-{int(time.time())}",
+    )
     existing_service_session = get_session_status(
         client,
         project.project_id,
         studio_id,
         config.studio_session_name,
     )
-    if existing_service_session and existing_service_session.get("state") == "running":
+    if local_health and local_health.get("ok") is True:
+        launch = {
+            "reused_existing_service": True,
+            "session_name": config.studio_session_name,
+        }
+        session_status = existing_service_session or {"state": "running"}
+    elif existing_service_session and existing_service_session.get("state") == "running":
         launch = {
             "reused_existing_session": True,
             "session_name": config.studio_session_name,
@@ -375,15 +402,15 @@ def main() -> None:
         )
     instance = resolve_studio_instance(client, project.project_id, studio_id)
     instance_payload = _instance_payload(instance)
-    service_port = _service_port(config)
     candidate_urls = _candidate_urls(studio_id, instance_payload, port=service_port)
-    local_health = _wait_for_local_health(
-        client,
-        project.project_id,
-        studio_id,
-        port=service_port,
-        session_name=f"{config.studio_session_name}-local-health-{int(time.time())}",
-    )
+    if not (local_health and local_health.get("ok") is True):
+        local_health = _wait_for_local_health(
+            client,
+            project.project_id,
+            studio_id,
+            port=service_port,
+            session_name=f"{config.studio_session_name}-local-health-{int(time.time())}",
+        )
     print(
         json.dumps(
             {
