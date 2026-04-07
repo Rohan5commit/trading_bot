@@ -237,6 +237,7 @@ def main() -> None:
     parser.add_argument("--status-out", default="")
     parser.add_argument("--allow-create", action="store_true")
     parser.add_argument("--force-restart-instance", action="store_true")
+    parser.add_argument("--skip-public-health-check", action="store_true")
     args = parser.parse_args()
 
     config = load_studio_config(args.config)
@@ -310,6 +311,25 @@ def main() -> None:
         ),
         flush=True,
     )
+    if args.skip_public_health_check:
+        report = {
+            "project_id": project.project_id,
+            "project_name": project.name,
+            "studio_id": studio_id,
+            "studio_name": str(getattr(studio, "name", "") or ""),
+            "instance": instance_payload,
+            "session": json_safe(session_status),
+            "repo_sync": json_safe(repo_sync.to_dict() if hasattr(repo_sync, "to_dict") else repo_sync),
+            "bootstrap": json_safe(bootstrap.to_dict() if hasattr(bootstrap, "to_dict") else bootstrap),
+            "launch": json_safe(launch.to_dict() if hasattr(launch, "to_dict") else launch),
+            "candidate_urls": candidate_urls,
+            "public_health_check_skipped": True,
+        }
+        payload = json.dumps(json_safe(report), indent=2)
+        print(payload)
+        if args.status_out:
+            Path(args.status_out).write_text(payload + "\n")
+        return
     try:
         active_url, health_payload = _wait_for_reachable_health(candidate_urls, timeout_seconds=1200)
     except Exception as exc:

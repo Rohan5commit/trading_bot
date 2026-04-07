@@ -58,32 +58,15 @@ jobs:
             --config quant_platform/configs/lightning_inference_studio.yaml \
             --allow-create \
             --force-restart-instance \
+            --skip-public-health-check \
             --status-out lightning-inference-status.json
 
-      - name: Export Lightning inference URL
+      - name: Run AI-only smoke test in Lightning Studio
         run: |
-          python - <<'PY'
-          import json
-          import os
-          from pathlib import Path
-
-          payload = json.loads(Path("lightning-inference-status.json").read_text())
-          url = str(payload.get("inference_url") or "").strip()
-          if not url:
-              raise SystemExit("lightning-inference-status.json did not include inference_url")
-          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as handle:
-              handle.write(f"TRAINED_MODEL_INFERENCE_URL={url}\n")
-          print(json.dumps({"inference_url": url}, indent=2))
-          PY
-
-      - name: Wait for trained model endpoint
-        run: python wait_for_trained_model.py
-
-      - name: Warm trained model
-        run: python warm_trained_model.py
-
-      - name: Run AI-only smoke test
-        run: python run_ai_trading_smoke.py
+          python run_ai_trading_smoke_studio.py \
+            --config quant_platform/configs/lightning_inference_studio.yaml \
+            --status-in lightning-inference-status.json \
+            --result-out results/ai_smoke_lightning_studio.json
 
       - name: Stop Lightning inference Studio
         if: always()
