@@ -80,12 +80,38 @@ def _latest_app(client, project_id: str, app_name: str):
     return client.lightningapp_instance_service_get_lightningapp_instance(project_id=project_id, id=app_id)
 
 
-def _candidate_urls(app, logs_text: str) -> list[str]:
+def _work_candidate_urls(client, project_id: str, app_id: str) -> list[str]:
+    urls: list[str] = []
+    try:
+        response = client.lightningwork_service_list_lightningwork(project_id=project_id, app_id=app_id)
+    except Exception:  # noqa: BLE001
+        return urls
+    works = list(getattr(response, "lightningworks", []) or [])
+    for work in works:
+        spec = getattr(work, "spec", None)
+        network_config = list(getattr(spec, "network_config", []) or [])
+        for item in network_config:
+            host = str(getattr(item, "host", "") or "").strip().rstrip("/")
+            if not host:
+                continue
+            if not host.startswith("http://") and not host.startswith("https://"):
+                host = f"https://{host}"
+            if host not in urls:
+                urls.append(host)
+    return urls
+
+
+def _candidate_urls(client, project_id: str, app, logs_text: str) -> list[str]:
     urls: list[str] = []
     for match in URL_RE.findall(logs_text or ""):
         match = str(match).strip().rstrip("/")
         if match and match not in urls:
             urls.append(match)
+    app_id = str(getattr(app, "id", "") or "").strip()
+    if app_id:
+        for candidate in _work_candidate_urls(client, project_id, app_id):
+            if candidate not in urls:
+                urls.append(candidate)
     status_url = str(getattr(getattr(app, "status", None), "url", "") or "").strip().rstrip("/")
     if status_url and status_url not in urls:
         urls.append(status_url)
@@ -104,7 +130,7 @@ def _wait_for_inference_url(client, project_id: str, app_name: str, *, timeout_s
             continue
         logs_text = collect_logs_text(client, project_id, str(getattr(app, "id", "")), max_pages=4)
         last_logs = logs_text
-        for candidate in _candidate_urls(app, logs_text):
+        for candidate in _candidate_urls(client, project_id, app, logs_text):
             try:
                 health = _poll_health(candidate)
                 return app, candidate, health, logs_text
