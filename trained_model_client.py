@@ -37,9 +37,11 @@ class TrainedModelTradeClient:
         timeout_override = os.getenv("TRAINED_MODEL_TIMEOUT_SECONDS")
         retries_override = os.getenv("TRAINED_MODEL_MAX_RETRIES")
         backoff_override = os.getenv("TRAINED_MODEL_BACKOFF_SECONDS")
+        batch_size_override = os.getenv("TRAINED_MODEL_BATCH_SIZE")
         self.timeout_seconds = int(timeout_override or model_cfg.get("timeout_seconds", 60) or 60)
         self.max_retries = max(0, int(retries_override or model_cfg.get("max_retries", 2) or 2))
         self.backoff_seconds = max(0.0, float(backoff_override or model_cfg.get("backoff_seconds", 5.0) or 5.0))
+        self.batch_size = max(1, int(batch_size_override or model_cfg.get("batch_size", 1) or 1))
         self.model_name = str(model_cfg.get("model_name", "quant-trained-trading-model") or "quant-trained-trading-model").strip()
         self.last_error = None
         self.last_model_used = None
@@ -67,18 +69,26 @@ class TrainedModelTradeClient:
         payload_candidates = [dict(c or {}) for c in list(candidates or []) if isinstance(c, dict)]
         if not payload_candidates:
             return []
-        try:
-            raw_signals = self._predict_batch_http(payload_candidates)
-        except Exception as exc:
-            self.last_error = str(exc)
-            logger.warning("Trained model batch inference failed: %s", exc)
-            return [None for _ in payload_candidates]
-
         out = []
-        for signal in raw_signals:
-            out.append(self._normalize_prediction(signal))
-        while len(out) < len(payload_candidates):
-            out.append(None)
+        for start in range(0, len(payload_candidates), self.batch_size):
+            batch = payload_candidates[start : start + self.batch_size]
+            try:
+                raw_signals = self._predict_batch_http(batch)
+            except Exception as exc:
+                self.last_error = str(exc)
+                logger.warning(
+                    "Trained model batch inference failed for batch %s-%s: %s",
+                    start,
+                    start + len(batch) - 1,
+                    exc,
+                )
+                out.extend([None for _ in batch])
+                continue
+
+            normalized = [self._normalize_prediction(signal) for signal in raw_signals]
+            while len(normalized) < len(batch):
+                normalized.append(None)
+            out.extend(normalized[: len(batch)])
         return out[: len(payload_candidates)]
 
     def _predict_batch_http(self, candidates: List[dict]):
