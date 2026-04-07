@@ -135,14 +135,30 @@ def _wait_for_inference_url(
             last_error = "Lightning app not found yet"
             time.sleep(10)
             continue
-        logs_text = collect_logs_text(client, project_id, str(getattr(app, "id", "")), max_pages=4)
-        last_logs = logs_text
-        for candidate in _candidate_urls(client, project_id, app, logs_text):
+        base_candidates = _candidate_urls(client, project_id, app, "")
+        for candidate in base_candidates:
             if not require_health:
-                return app, candidate, None, logs_text
+                return app, candidate, None, last_logs
             try:
                 health = _poll_health(candidate)
-                return app, candidate, health, logs_text
+                return app, candidate, health, last_logs
+            except Exception as exc:  # noqa: BLE001
+                last_error = f"{candidate}: {exc}"
+        logs_text = ""
+        try:
+            logs_text = collect_logs_text(client, project_id, str(getattr(app, "id", "")), max_pages=4)
+        except Exception as exc:  # noqa: BLE001
+            last_logs = f"[log-collection-error] {exc}"
+        else:
+            last_logs = logs_text
+        for candidate in _candidate_urls(client, project_id, app, logs_text):
+            if candidate in base_candidates:
+                continue
+            if not require_health:
+                return app, candidate, None, last_logs
+            try:
+                health = _poll_health(candidate)
+                return app, candidate, health, last_logs
             except Exception as exc:  # noqa: BLE001
                 last_error = f"{candidate}: {exc}"
         phase = phase_name(app)

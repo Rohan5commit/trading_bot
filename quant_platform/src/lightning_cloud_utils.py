@@ -381,8 +381,8 @@ def list_app_artifacts(client, project_id: str, app_id: str) -> list[Any]:
     return list(getattr(response, "artifacts", []) or [])
 
 
-def _download_text(url: str) -> str:
-    with urllib.request.urlopen(url) as response:
+def _download_text(url: str, *, timeout: int = 10) -> str:
+    with urllib.request.urlopen(url, timeout=timeout) as response:
         return response.read().decode("utf-8", errors="replace")
 
 
