@@ -75,12 +75,23 @@ def load_studio_config(path: str | Path) -> LightningStudioConfig:
 
         payload = yaml.safe_load(Path(path).read_text()) or {}
 
+    studio_compute_name = (
+        _clean(str(os.getenv("LIGHTNING_INFERENCE_COMPUTE_NAME") or ""))
+        or _clean(str(payload.get("studio_compute_name") or ""))
+        or DEFAULT_STUDIO_COMPUTE_NAME
+    )
+    studio_disk_size_gb = int(
+        _clean(str(os.getenv("LIGHTNING_INFERENCE_DISK_GB") or ""))
+        or payload.get("studio_disk_size_gb")
+        or DEFAULT_STUDIO_DISK_SIZE_GB
+    )
+
     return LightningStudioConfig(
         run=run,
         studio_name=_clean(str(payload.get("studio_name") or "")) or "",
         studio_cluster_id=_clean(str(payload.get("studio_cluster_id") or "")) or DEFAULT_STUDIO_CLUSTER_ID,
-        studio_compute_name=_clean(str(payload.get("studio_compute_name") or "")) or DEFAULT_STUDIO_COMPUTE_NAME,
-        studio_disk_size_gb=int(payload.get("studio_disk_size_gb") or DEFAULT_STUDIO_DISK_SIZE_GB),
+        studio_compute_name=studio_compute_name,
+        studio_disk_size_gb=studio_disk_size_gb,
         studio_ide=_clean(str(payload.get("studio_ide") or "")) or DEFAULT_STUDIO_IDE,
         studio_repo_url=_clean(str(payload.get("studio_repo_url") or "")) or _git_remote_origin(),
         studio_repo_ref=_clean(str(payload.get("studio_repo_ref") or "")) or DEFAULT_STUDIO_REPO_REF,
