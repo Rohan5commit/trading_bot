@@ -19,19 +19,8 @@ jobs:
       LIGHTNING_USERNAME: ${{ secrets.LIGHTNING_USERNAME }}
       LIGHTNING_API_KEY: ${{ secrets.LIGHTNING_API_KEY }}
       LIGHTNING_USER_ID: ${{ secrets.LIGHTNING_USER_ID }}
-      LIGHTNING_CLOUD_PROJECT_ID: "01kkqt8mzptzp8svph6p4nt915"
-      GITHUB_TOKEN: ${{ github.token }}
-      TRAINED_MODEL_BASE_MODEL: "Qwen/Qwen2.5-7B-Instruct"
-      TRAINED_MODEL_NAME: "quant-trained-trading-model"
-      TRAINED_MODEL_CPU_THREADS: "8"
-      LIGHTNING_INFERENCE_COMPUTE_NAME: "cpu-8"
-      LIGHTNING_INFERENCE_DISK_GB: "80"
-      LIGHTNING_INFERENCE_PORT: "8000"
+      TRAINED_MODEL_INFERENCE_URL: ${{ secrets.TRAINED_MODEL_INFERENCE_URL }}
       TRAINED_MODEL_API_KEY: ${{ secrets.TRAINED_MODEL_API_KEY }}
-      TRAINED_MODEL_ADAPTER_ARCHIVE_URL: ${{ secrets.TRAINED_MODEL_ADAPTER_ARCHIVE_URL }}
-      TRAINED_MODEL_ADAPTER_ARCHIVE_TOKEN: ${{ secrets.TRAINED_MODEL_ADAPTER_ARCHIVE_TOKEN }}
-      TRAINED_MODEL_READY_TIMEOUT_SECONDS: "1200"
-      TRAINED_MODEL_READY_POLL_SECONDS: "15"
       TRAINED_MODEL_TIMEOUT_SECONDS: "1800"
       TRAINED_MODEL_MAX_RETRIES: "0"
       TRAINED_MODEL_BACKOFF_SECONDS: "5"
@@ -53,21 +42,9 @@ jobs:
           pip install -r requirements.txt
           pip install "lightning[app]==2.3.2" lightning-cloud==0.5.70
 
-      - name: Launch Lightning inference studio
-        run: |
-          python launch_lightning_inference_studio.py \
-            --config quant_platform/configs/lightning_inference_studio.yaml \
-            --allow-create \
-            --force-restart-instance \
-            --skip-public-health-check \
-            --status-out lightning-inference-status.json
-
       - name: Run AI-only smoke test
         run: |
-          python run_ai_trading_smoke_studio.py \
-            --config quant_platform/configs/lightning_inference_studio.yaml \
-            --status-in lightning-inference-status.json \
-            --result-out results/ai_smoke_lightning_studio.json
+          python run_ai_trading_smoke.py
 
       - name: Show AI smoke result
         if: always()
