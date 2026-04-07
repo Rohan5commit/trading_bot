@@ -46,6 +46,14 @@ DEFAULT_APP_NAME = "trading-bot-lightning-inference"
 URL_RE = re.compile(r"LIGHTNING_INFERENCE_URL=(https?://\S+)")
 
 
+def _resolved_project_id() -> str | None:
+    for key in ("LIGHTNING_CLOUD_PROJECT_ID", "LIGHTNING_PROJECT_ID"):
+        value = str(os.getenv(key) or "").strip()
+        if value:
+            return value
+    return None
+
+
 def _app_payload(app: Any) -> dict[str, Any]:
     if app is None:
         return {}
@@ -219,7 +227,8 @@ def main() -> None:
     auth_env = ensure_auth_env()
     set_process_env(auth_env)
     _patch_lightning_dispatch_compat()
-    client, project = get_client_and_project()
+    project_id = _resolved_project_id()
+    client, project = get_client_and_project(project_id=project_id)
 
     if args.replace_existing:
         delete_matching_apps(client, project.project_id, args.app_name)

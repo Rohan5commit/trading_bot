@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
 import sys
 
@@ -24,6 +25,14 @@ from lightning_cloud_utils import (  # noqa: E402
 DEFAULT_APP_NAME = "trading-bot-lightning-inference"
 
 
+def _resolved_project_id() -> str | None:
+    for key in ("LIGHTNING_CLOUD_PROJECT_ID", "LIGHTNING_PROJECT_ID"):
+        value = str(os.getenv(key) or "").strip()
+        if value:
+            return value
+    return None
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--app-name", default=DEFAULT_APP_NAME)
@@ -31,7 +40,7 @@ def main() -> None:
 
     auth_env = ensure_auth_env()
     set_process_env(auth_env)
-    client, project = get_client_and_project()
+    client, project = get_client_and_project(project_id=_resolved_project_id())
     deleted = delete_matching_apps(client, project.project_id, args.app_name, phases=ACTIVE_PHASES)
     wait_for_app_removal(client, project.project_id, args.app_name, timeout_seconds=300, poll_seconds=10)
     print(json.dumps({"ok": True, "deleted_app_ids": deleted}, indent=2))

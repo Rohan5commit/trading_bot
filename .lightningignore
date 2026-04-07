@@ -1,0 +1,12 @@
+.git
+.github
+.venv
+.venv39
+__pycache__
+*.pyc
+analysis
+backtesting/data/cache
+results
+latest_failed_run_log.txt
+model_registry.json
+models/backtest_signal_history.jsonl

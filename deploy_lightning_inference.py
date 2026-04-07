@@ -43,6 +43,7 @@ ENV_KEYS = (
     "LIGHTNING_INFERENCE_DISK_GB",
     "LIGHTNING_INFERENCE_PORT",
     "TRAINED_MODEL_LOG_LEVEL",
+    "LIGHTNING_CLOUD_PROJECT_ID",
 )
 
 
@@ -90,7 +91,8 @@ def main() -> None:
     auth_env = ensure_auth_env()
     set_process_env(auth_env)
     _patch_lightning_dispatch_compat()
-    client, project = get_client_and_project()
+    project_id = str(os.getenv("LIGHTNING_CLOUD_PROJECT_ID") or os.getenv("LIGHTNING_PROJECT_ID") or "").strip() or None
+    client, project = get_client_and_project(project_id=project_id)
 
     entrypoint = ROOT_DIR / "lightning_trained_model_app.py"
     env_vars = _collect_env()
