@@ -62,6 +62,38 @@ def _checked_execute(client, project_id: str, studio_id: str, *, command: str, s
     return payload
 
 
+def _launch_detached_session(
+    client,
+    project_id: str,
+    studio_id: str,
+    *,
+    command: str,
+    session_name: str,
+    max_attempts: int = 3,
+    retry_sleep_seconds: int = 5,
+) -> dict[str, Any]:
+    last_exc: Exception | None = None
+    for attempt in range(1, max_attempts + 1):
+        try:
+            result = execute_studio_command(
+                client,
+                project_id,
+                studio_id,
+                command=command,
+                session_name=session_name,
+                detached=True,
+            )
+            return _command_payload(result)
+        except Exception as exc:  # noqa: BLE001
+            last_exc = exc
+            if attempt >= max_attempts:
+                raise
+            time.sleep(retry_sleep_seconds)
+    if last_exc is not None:
+        raise last_exc
+    raise RuntimeError("Failed to launch detached Studio smoke session.")
+
+
 def _collect_command_output(client, project_id: str, studio_id: str, session_name: str, payload: dict[str, Any]) -> tuple[str, dict[str, Any] | None]:
     output = str(payload.get("output") or "")
     if RESULT_BEGIN in output and RESULT_END in output:
@@ -79,6 +111,33 @@ def _collect_command_output(client, project_id: str, studio_id: str, session_nam
             if status.get("state") in {"completed", "failed"}:
                 break
         time.sleep(5)
+    return output, last_status
+
+
+def _wait_for_detached_session_output(
+    client,
+    project_id: str,
+    studio_id: str,
+    session_name: str,
+    *,
+    timeout_seconds: int = 1800,
+    poll_seconds: int = 15,
+) -> tuple[str, dict[str, Any] | None]:
+    deadline = time.time() + timeout_seconds
+    output = ""
+    last_status = None
+    while time.time() < deadline:
+        status = get_session_status(client, project_id, studio_id, session_name)
+        if status is not None:
+            last_status = status
+            candidate_output = str(status.get("output") or "")
+            if candidate_output:
+                output = candidate_output
+            if RESULT_BEGIN in output and RESULT_END in output:
+                return output, last_status
+            if status.get("state") in {"completed", "failed"}:
+                break
+        time.sleep(poll_seconds)
     return output, last_status
 
 
@@ -162,15 +221,20 @@ def main() -> None:
     if instance is None:
         raise RuntimeError("Lightning Studio does not have an active instance.")
 
-    payload = _checked_execute(
+    session_name = f"{config.studio_session_name}-ai-smoke"
+    payload = _launch_detached_session(
         client,
         project.project_id,
         studio_id,
         command=_build_smoke_command(config, service_port=_service_port(config)),
-        session_name=f"{config.studio_session_name}-ai-smoke",
+        session_name=session_name,
     )
-    session_name = f"{config.studio_session_name}-ai-smoke"
-    output_text, session_status = _collect_command_output(client, project.project_id, studio_id, session_name, payload)
+    output_text, session_status = _wait_for_detached_session_output(
+        client,
+        project.project_id,
+        studio_id,
+        session_name,
+    )
     try:
         result_path, result_payload = _extract_result(output_text)
     except Exception as exc:  # noqa: BLE001
