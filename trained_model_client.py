@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import re
+import time
 from typing import List, Optional
 from urllib.parse import urlparse
 
@@ -34,6 +35,8 @@ class TrainedModelTradeClient:
         self.api_key_env = str(model_cfg.get("api_key_env", "") or "").strip()
         self.api_key = os.getenv(self.api_key_env).strip() if self.api_key_env and os.getenv(self.api_key_env) else ""
         self.timeout_seconds = int(model_cfg.get("timeout_seconds", 60) or 60)
+        self.max_retries = max(0, int(model_cfg.get("max_retries", 2) or 2))
+        self.backoff_seconds = max(0.0, float(model_cfg.get("backoff_seconds", 5.0) or 5.0))
         self.model_name = str(model_cfg.get("model_name", "quant-trained-trading-model") or "quant-trained-trading-model").strip()
         self.last_error = None
         self.last_model_used = None
@@ -83,9 +86,40 @@ class TrainedModelTradeClient:
         headers = {"Content-Type": "application/json", "Accept": "application/json"}
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
-        response = requests.post(self._prediction_url(), json=payload, headers=headers, timeout=self.timeout_seconds)
-        response.raise_for_status()
-        data = response.json()
+        data = None
+        last_exc = None
+        for attempt in range(self.max_retries + 1):
+            try:
+                response = requests.post(
+                    self._prediction_url(),
+                    json=payload,
+                    headers=headers,
+                    timeout=self.timeout_seconds,
+                )
+                if response.status_code >= 500:
+                    detail = self._error_detail(response)
+                    raise requests.HTTPError(
+                        f"{response.status_code} Server Error: {detail or response.reason or 'remote inference failed'} for url: {response.url}",
+                        response=response,
+                    )
+                response.raise_for_status()
+                data = response.json()
+                break
+            except (requests.Timeout, requests.ConnectionError, requests.HTTPError) as exc:
+                last_exc = exc
+                if attempt >= self.max_retries:
+                    raise
+                sleep_seconds = self.backoff_seconds * (attempt + 1)
+                logger.warning(
+                    "Trained model HTTP attempt %s/%s failed: %s; retrying in %.1fs",
+                    attempt + 1,
+                    self.max_retries + 1,
+                    exc,
+                    sleep_seconds,
+                )
+                time.sleep(sleep_seconds)
+        if data is None and last_exc is not None:
+            raise last_exc
         self.last_model_used = data.get("model") or data.get("model_used") or self.model_identifier
         signals = data.get("signals")
         if isinstance(signals, list):
@@ -106,6 +140,21 @@ class TrainedModelTradeClient:
         if not path or path == "/":
             return url.rstrip("/") + "/predict_trade_candidates"
         return url
+
+    @staticmethod
+    def _error_detail(response: requests.Response) -> str:
+        try:
+            payload = response.json()
+        except Exception:
+            payload = None
+        if isinstance(payload, dict):
+            detail = payload.get("detail") or payload.get("error") or payload.get("message")
+            if detail:
+                return str(detail)
+        text = (response.text or "").strip()
+        if text:
+            return text[:500]
+        return ""
 
     def _normalize_prediction(self, raw) -> Optional[dict]:
         parsed = raw
