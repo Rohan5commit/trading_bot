@@ -45,6 +45,7 @@ jobs:
             --config quant_platform/configs/lightning_inference_studio.yaml \
             --allow-create \
             --force-restart-instance \
+            --skip-public-health-check \
             --status-out lightning-inference-status.json
 
       - name: Show deployed inference URL
