@@ -42,6 +42,7 @@ jobs:
           python launch_lightning_inference_app.py \
             --app-name trading-bot-lightning-inference \
             --replace-existing \
+            --require-health \
             --timeout-seconds 2400 \
             --status-out lightning-inference-status.json
 

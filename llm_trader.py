@@ -1,4 +1,5 @@
 import logging
+import os
 import re
 
 from trained_model_client import TrainedModelTradeClient
@@ -149,6 +150,26 @@ def propose_trades_with_llm(config, candidates, max_positions=10, allow_shorts=T
 
     if not client.is_ready():
         status["error"] = getattr(client, "last_error", None) or "Trained model is not configured."
+        return [], status
+
+    ready_timeout_seconds = int(
+        os.getenv("TRAINED_MODEL_READY_TIMEOUT_SECONDS")
+        or model_cfg.get("ready_timeout_seconds", 1200)
+        or 1200
+    )
+    ready_poll_seconds = float(
+        os.getenv("TRAINED_MODEL_READY_POLL_SECONDS")
+        or model_cfg.get("ready_poll_seconds", 15)
+        or 15
+    )
+    try:
+        client.wait_until_ready(
+            timeout_seconds=ready_timeout_seconds,
+            poll_seconds=ready_poll_seconds,
+        )
+    except Exception as exc:
+        status["error"] = str(exc)
+        status["model_used"] = getattr(client, "last_model_used", None) or client.model_identifier
         return [], status
 
     predictions = []

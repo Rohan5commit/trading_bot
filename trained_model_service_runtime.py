@@ -213,10 +213,43 @@ def _candidate_prompt(candidate: Dict[str, Any]) -> str:
         f"VOLUME_RATIO: {candidate.get('volume_ratio')}",
         f"NEWS_COUNT_7D: {candidate.get('news_count_7d')}",
         f"NEWS_SENTIMENT_7D: {candidate.get('news_sentiment_7d')}",
-        "QUESTION: Classify the expected 5-day return as STRONG_BUY | BUY | NEUTRAL | SELL | STRONG_SELL.",
-        'Return only compact JSON: {"label":"BUY","confidence":0.63,"reason":"short english phrase"}',
+        "QUESTION: Classify the expected 5-day return as exactly one label from STRONG_BUY, BUY, NEUTRAL, SELL, STRONG_SELL.",
+        "Return the label only. No JSON. No explanation.",
     ]
     return "\n".join(lines)
+
+
+def _reason_from_candidate(label: str, candidate: Dict[str, Any]) -> str:
+    label = str(label or "NEUTRAL").strip().upper()
+    ret_5d = candidate.get("return_5d")
+    rsi_14 = candidate.get("rsi_14")
+    sentiment = candidate.get("news_sentiment_7d")
+
+    def _fmt(value: Any) -> str | None:
+        try:
+            return f"{float(value):.2f}"
+        except (TypeError, ValueError):
+            return None
+
+    ret_text = _fmt(ret_5d)
+    rsi_text = _fmt(rsi_14)
+    sentiment_text = _fmt(sentiment)
+
+    if label in {"STRONG_BUY", "BUY"}:
+        parts = ["positive momentum bias"]
+        if ret_text is not None:
+            parts.append(f"5d return {ret_text}")
+        if rsi_text is not None:
+            parts.append(f"RSI {rsi_text}")
+        return ", ".join(parts)
+    if label in {"STRONG_SELL", "SELL"}:
+        parts = ["negative momentum bias"]
+        if ret_text is not None:
+            parts.append(f"5d return {ret_text}")
+        if sentiment_text is not None:
+            parts.append(f"news sentiment {sentiment_text}")
+        return ", ".join(parts)
+    return "mixed short-term signals"
 
 
 def _load_runtime():
@@ -255,37 +288,66 @@ def _load_runtime():
         raise
 
 
-def _predict_one(candidate: Dict[str, Any]) -> Dict[str, Any]:
+def _prediction_from_text(text: str, candidate: Dict[str, Any]) -> Dict[str, Any]:
+    parsed = _extract_json(text) or _parse_plain_label(text) or {}
+    label = str(parsed.get("label") or "").strip().upper()
+    if label not in {"STRONG_BUY", "BUY", "NEUTRAL", "SELL", "STRONG_SELL"}:
+        match = LABEL_RE.search(text or "")
+        label = match.group(1).upper() if match else "NEUTRAL"
+    confidence = {
+        "STRONG_BUY": 0.9,
+        "BUY": 0.72,
+        "NEUTRAL": 0.5,
+        "SELL": 0.72,
+        "STRONG_SELL": 0.9,
+    }[label]
+    return {
+        "label": label,
+        "confidence": confidence,
+        "reason": _reason_from_candidate(label, candidate),
+        "symbol": candidate.get("symbol"),
+    }
+
+
+def _predict_batch(candidates: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     model, tokenizer, torch = _load_runtime()
     system = (
         "You are the trained AI trading decision engine. "
-        "Return only valid compact JSON with label, confidence, and a very short reason."
+        "Return only one label from STRONG_BUY, BUY, NEUTRAL, SELL, STRONG_SELL."
     )
-    prompt = tokenizer.apply_chat_template(
-        [
-            {"role": "system", "content": system},
-            {"role": "user", "content": _candidate_prompt(candidate)},
-        ],
-        tokenize=False,
-        add_generation_prompt=True,
+    prompts = [
+        tokenizer.apply_chat_template(
+            [
+                {"role": "system", "content": system},
+                {"role": "user", "content": _candidate_prompt(candidate)},
+            ],
+            tokenize=False,
+            add_generation_prompt=True,
+        )
+        for candidate in candidates
+    ]
+    tokenizer.padding_side = "left"
+    encoded = tokenizer(
+        prompts,
+        return_tensors="pt",
+        padding=True,
+        truncation=True,
+        max_length=1024,
     )
-    encoded = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=1536)
-    input_len = encoded["input_ids"].shape[-1]
+    input_lens = encoded["attention_mask"].sum(dim=1).tolist()
     with torch.no_grad():
         generated = model.generate(
             **encoded,
-            max_new_tokens=24,
+            max_new_tokens=6,
             do_sample=False,
             pad_token_id=tokenizer.eos_token_id,
         )
-    text = tokenizer.decode(generated[0][input_len:], skip_special_tokens=True).strip()
-    parsed = _extract_json(text) or _parse_plain_label(text) or {
-        "label": "NEUTRAL",
-        "confidence": 0.5,
-        "reason": text or "No parsable output.",
-    }
-    parsed["symbol"] = candidate.get("symbol")
-    return parsed
+    outputs: List[Dict[str, Any]] = []
+    for index, candidate in enumerate(candidates):
+        start = int(input_lens[index])
+        text = tokenizer.decode(generated[index][start:], skip_special_tokens=True).strip()
+        outputs.append(_prediction_from_text(text, candidate))
+    return outputs
 
 
 def _require_api_key(authorization: str | None = Header(default=None)) -> None:
@@ -313,6 +375,7 @@ app = FastAPI(title=MODEL_NAME)
 def health() -> dict[str, Any]:
     try:
         adapter_dir = _ensure_adapter_dir()
+        _load_runtime()
     except Exception as exc:
         return {
             "ok": False,
@@ -325,6 +388,7 @@ def health() -> dict[str, Any]:
         "model": MODEL_NAME,
         "base_model": BASE_MODEL,
         "adapter_dir": str(adapter_dir),
+        "ready": True,
     }
 
 
@@ -345,7 +409,7 @@ def predict_trade_candidates(payload: Dict[str, Any]) -> dict[str, Any]:
     if not candidates:
         raise HTTPException(status_code=400, detail="No candidate payload supplied.")
     try:
-        signals = [_predict_one(candidate) for candidate in candidates]
+        signals = _predict_batch(candidates)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     return {
