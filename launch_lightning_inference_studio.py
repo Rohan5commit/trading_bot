@@ -312,6 +312,7 @@ def main() -> None:
         flush=True,
     )
     if args.skip_public_health_check:
+        active_url = candidate_urls[0] if candidate_urls else ""
         report = {
             "project_id": project.project_id,
             "project_name": project.name,
@@ -323,6 +324,7 @@ def main() -> None:
             "bootstrap": json_safe(bootstrap.to_dict() if hasattr(bootstrap, "to_dict") else bootstrap),
             "launch": json_safe(launch.to_dict() if hasattr(launch, "to_dict") else launch),
             "candidate_urls": candidate_urls,
+            "inference_url": active_url,
             "public_health_check_skipped": True,
         }
         payload = json.dumps(json_safe(report), indent=2)
