@@ -231,8 +231,12 @@ def set_process_env(env: dict[str, str]) -> None:
 
 
 def get_client_and_project(project_id: str | None = None):
-    from lightning_app.utilities.cloud import _get_project
-    from lightning_app.utilities.network import LightningClient
+    try:
+        from lightning.app.utilities.cloud import _get_project
+        from lightning.app.utilities.network import LightningClient
+    except ModuleNotFoundError:
+        from lightning_app.utilities.cloud import _get_project
+        from lightning_app.utilities.network import LightningClient
 
     client = LightningClient(retry=False)
     project = _get_project(client, project_id=project_id, verbose=False)

@@ -32,7 +32,7 @@ jobs:
       - name: Install Lightning deploy dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install lightning-app==2.3.2 lightning-cloud==0.5.70
+          python -m pip install "lightning[app]==2.3.2" lightning-cloud==0.5.70
 
       - name: Lightning preflight
         run: python quant_platform/scripts/lightning_account_preflight.py

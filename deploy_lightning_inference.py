@@ -21,8 +21,12 @@ from lightning_cloud_utils import (  # noqa: E402
     set_process_env,
 )
 
-from lightning_app.runners.runtime import dispatch  # noqa: E402
-from lightning_app.runners.runtime_type import RuntimeType  # noqa: E402
+try:  # noqa: E402
+    from lightning.app.runners.runtime import dispatch
+    from lightning.app.runners.runtime_type import RuntimeType
+except ModuleNotFoundError:  # noqa: E402
+    from lightning_app.runners.runtime import dispatch
+    from lightning_app.runners.runtime_type import RuntimeType
 
 
 ENV_KEYS = (

@@ -43,7 +43,10 @@ def _list_instances_for_cloudspace(client: Any, *, project_id: str, cloudspace_i
 
 
 def _patch_cloud_runtime(*, force_running: bool) -> None:
-    from lightning_app.runners.cloud import CloudRuntime
+    try:
+        from lightning.app.runners.cloud import CloudRuntime
+    except ModuleNotFoundError:
+        from lightning_app.runners.cloud import CloudRuntime
 
     def _resolve_existing_run_instance(self, cluster_id, project_id, existing_cloudspaces):
         existing_cloudspace = None
@@ -90,8 +93,12 @@ def main() -> None:
 
     _patch_cloud_runtime(force_running=args.force_running)
 
-    from lightning_app.runners.runtime import dispatch
-    from lightning_app.runners.runtime_type import RuntimeType
+    try:
+        from lightning.app.runners.runtime import dispatch
+        from lightning.app.runners.runtime_type import RuntimeType
+    except ModuleNotFoundError:
+        from lightning_app.runners.runtime import dispatch
+        from lightning_app.runners.runtime_type import RuntimeType
 
     entrypoint = Path(args.entrypoint)
     if not entrypoint.is_absolute():

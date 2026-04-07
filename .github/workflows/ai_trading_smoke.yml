@@ -44,7 +44,7 @@ jobs:
       - name: Install dependencies
         run: |
           pip install -r requirements.txt
-          pip install lightning-app==2.3.2 lightning-cloud==0.5.70
+          pip install "lightning[app]==2.3.2" lightning-cloud==0.5.70
 
       - name: Launch Lightning inference App
         run: |

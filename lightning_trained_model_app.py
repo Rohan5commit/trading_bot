@@ -3,7 +3,10 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from lightning_app import BuildConfig, CloudCompute, LightningApp, LightningFlow, LightningWork
+try:
+    from lightning.app import BuildConfig, CloudCompute, LightningApp, LightningFlow, LightningWork
+except ModuleNotFoundError:
+    from lightning_app import BuildConfig, CloudCompute, LightningApp, LightningFlow, LightningWork
 
 
 ROOT_DIR = Path(__file__).resolve().parent

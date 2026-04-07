@@ -5,8 +5,12 @@ import json
 from pathlib import Path
 import time
 
-from lightning_app import BuildConfig, CloudCompute, LightningApp, LightningFlow, LightningWork
-from lightning_app.storage import Drive
+try:
+    from lightning.app import BuildConfig, CloudCompute, LightningApp, LightningFlow, LightningWork
+    from lightning.app.storage import Drive
+except ModuleNotFoundError:
+    from lightning_app import BuildConfig, CloudCompute, LightningApp, LightningFlow, LightningWork
+    from lightning_app.storage import Drive
 
 from src.lightning_checkpoint import run_checkpointed_command
 from src.lightning_cloud_utils import LightningCloudConfig, ROOT_DIR, load_run_config
