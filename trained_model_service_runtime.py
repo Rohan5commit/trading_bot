@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import types
 import inspect
 import importlib.util
 import os
@@ -47,6 +48,22 @@ def _disable_torchvision_discovery() -> None:
     patched_find_spec._trading_bot_torchvision_patched = True
     importlib.util.find_spec = patched_find_spec
     sys.modules.pop("torchvision", None)
+    sys.modules.pop("torchvision.transforms", None)
+
+    class _InterpolationMode:
+        NEAREST = "nearest"
+        BOX = "box"
+        BILINEAR = "bilinear"
+        HAMMING = "hamming"
+        BICUBIC = "bicubic"
+        LANCZOS = "lanczos"
+
+    transforms_module = types.ModuleType("torchvision.transforms")
+    transforms_module.InterpolationMode = _InterpolationMode
+    torchvision_module = types.ModuleType("torchvision")
+    torchvision_module.transforms = transforms_module
+    sys.modules["torchvision"] = torchvision_module
+    sys.modules["torchvision.transforms"] = transforms_module
 
 
 def _patch_peft_lora_config_compat() -> None:
