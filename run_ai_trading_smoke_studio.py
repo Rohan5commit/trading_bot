@@ -113,7 +113,6 @@ def _build_smoke_command(config, *, service_port: int) -> str:
         f"cd {shlex.quote(str(repo_dir))}",
         "if [ -f .venv/bin/activate ]; then source .venv/bin/activate; fi",
         "python wait_for_trained_model.py",
-        "python warm_trained_model.py",
         "python run_ai_trading_smoke.py",
         "latest=$(ls -1t results/ai_smoke_*.json | head -n1)",
         f"echo {shlex.quote(RESULT_PATH_PREFIX)}\"$latest\"",
