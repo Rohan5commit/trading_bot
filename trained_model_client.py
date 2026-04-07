@@ -34,9 +34,12 @@ class TrainedModelTradeClient:
             self.inference_url = os.getenv(self.inference_url_env).strip()
         self.api_key_env = str(model_cfg.get("api_key_env", "") or "").strip()
         self.api_key = os.getenv(self.api_key_env).strip() if self.api_key_env and os.getenv(self.api_key_env) else ""
-        self.timeout_seconds = int(model_cfg.get("timeout_seconds", 60) or 60)
-        self.max_retries = max(0, int(model_cfg.get("max_retries", 2) or 2))
-        self.backoff_seconds = max(0.0, float(model_cfg.get("backoff_seconds", 5.0) or 5.0))
+        timeout_override = os.getenv("TRAINED_MODEL_TIMEOUT_SECONDS")
+        retries_override = os.getenv("TRAINED_MODEL_MAX_RETRIES")
+        backoff_override = os.getenv("TRAINED_MODEL_BACKOFF_SECONDS")
+        self.timeout_seconds = int(timeout_override or model_cfg.get("timeout_seconds", 60) or 60)
+        self.max_retries = max(0, int(retries_override or model_cfg.get("max_retries", 2) or 2))
+        self.backoff_seconds = max(0.0, float(backoff_override or model_cfg.get("backoff_seconds", 5.0) or 5.0))
         self.model_name = str(model_cfg.get("model_name", "quant-trained-trading-model") or "quant-trained-trading-model").strip()
         self.last_error = None
         self.last_model_used = None
@@ -83,9 +86,7 @@ class TrainedModelTradeClient:
             "candidates": candidates,
             "task": "trade_signal_classification",
         }
-        headers = {"Content-Type": "application/json", "Accept": "application/json"}
-        if self.api_key:
-            headers["Authorization"] = f"Bearer {self.api_key}"
+        headers = self._request_headers()
         data = None
         last_exc = None
         for attempt in range(self.max_retries + 1):
@@ -129,6 +130,40 @@ class TrainedModelTradeClient:
             return [signal]
         return []
 
+    def health(self) -> dict:
+        response = requests.get(
+            self._health_url(),
+            headers=self._request_headers(),
+            timeout=min(self.timeout_seconds, 30),
+        )
+        response.raise_for_status()
+        payload = response.json()
+        if not isinstance(payload, dict):
+            raise RuntimeError("Trained model health response was not a JSON object.")
+        return payload
+
+    def wait_until_ready(self, timeout_seconds: int = 600, poll_seconds: float = 10.0) -> dict:
+        timeout_seconds = max(1, int(timeout_seconds or 1))
+        poll_seconds = max(0.5, float(poll_seconds or 0.5))
+        deadline = time.time() + timeout_seconds
+        last_error = "trained model readiness probe did not start"
+        while time.time() < deadline:
+            try:
+                payload = self.health()
+                if payload.get("ok") is True:
+                    self.last_error = None
+                    self.last_model_used = payload.get("model") or self.model_identifier
+                    return payload
+                last_error = str(payload.get("error") or payload)
+            except Exception as exc:
+                last_error = str(exc)
+            self.last_error = last_error
+            remaining = deadline - time.time()
+            if remaining <= 0:
+                break
+            time.sleep(min(poll_seconds, remaining))
+        raise RuntimeError(f"Trained model endpoint did not become ready within {timeout_seconds}s: {last_error}")
+
     def _prediction_url(self) -> str:
         url = (self.inference_url or "").strip()
         if not url:
@@ -140,6 +175,26 @@ class TrainedModelTradeClient:
         if not path or path == "/":
             return url.rstrip("/") + "/predict_trade_candidates"
         return url
+
+    def _health_url(self) -> str:
+        url = (self.inference_url or "").strip()
+        if not url:
+            return url
+        parsed = urlparse(url)
+        path = (parsed.path or "").rstrip("/")
+        if path.endswith("/health") or path == "/health":
+            return url
+        if path.endswith("/predict_trade_candidates") or path == "/predict_trade_candidates":
+            return url[: -len("/predict_trade_candidates")] + "/health"
+        if not path or path == "/":
+            return url.rstrip("/") + "/health"
+        return url.rstrip("/") + "/health"
+
+    def _request_headers(self) -> dict[str, str]:
+        headers = {"Content-Type": "application/json", "Accept": "application/json"}
+        if self.api_key:
+            headers["Authorization"] = f"Bearer {self.api_key}"
+        return headers
 
     @staticmethod
     def _error_detail(response: requests.Response) -> str:
