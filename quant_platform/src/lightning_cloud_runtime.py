@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 import json
 from pathlib import Path
 import time
@@ -17,7 +17,7 @@ SHUTDOWN_RESTART_EXIT_CODE = 75
 
 
 def _utc_now() -> str:
-    return datetime.now(UTC).isoformat()
+    return datetime.now(timezone.utc).isoformat()
 
 
 def _resolve_repo_relative(path_value: str) -> str:

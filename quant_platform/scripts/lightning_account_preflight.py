@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import argparse
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 import json
 from pathlib import Path
 import sys
@@ -57,7 +57,7 @@ def build_preflight_report() -> dict:
     feature_flags = {name: bool(features.get(name, False)) for name in IMPORTANT_FEATURE_FLAGS}
 
     report = {
-        "checked_at_utc": datetime.now(UTC).isoformat(),
+        "checked_at_utc": datetime.now(timezone.utc).isoformat(),
         "username": user_payload.get("username"),
         "user_id": user_payload.get("id"),
         "project_id": project.project_id,

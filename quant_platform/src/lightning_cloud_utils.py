@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import UTC, date, datetime
+from datetime import date, datetime, timezone
 import json
 import os
 from pathlib import Path
@@ -158,7 +158,7 @@ def sanitize_drive_id(name: str) -> str:
 
 
 def next_app_name(app_name: str) -> str:
-    suffix = datetime.now(UTC).strftime("%Y%m%d%H%M%S").lower()
+    suffix = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S").lower()
     return f"{app_name}-{suffix}"
 
 

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import replace
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
@@ -58,7 +58,7 @@ def main() -> None:
 
     allow_relaunch = args.relaunch_if_missing or config.relaunch_if_missing
     allow_restart = args.restart_on_terminal or config.restart_on_terminal
-    generated_at = datetime.now(UTC).isoformat()
+    generated_at = datetime.now(timezone.utc).isoformat()
 
     action = "noop"
     app = find_app_by_name(client, project.project_id, config.app_name)
