@@ -5,6 +5,8 @@ studio_cluster_id: gcp-lightning-public-prod
 studio_compute_name: cpu-4
 studio_disk_size_gb: 80
 studio_ide: jupyterlab
+studio_auto_start_ports:
+  - "8510"
 studio_repo_url: https://github.com/Rohan5commit/trading_bot.git
 studio_repo_ref: main
 studio_repo_dir: trading-bot-studio

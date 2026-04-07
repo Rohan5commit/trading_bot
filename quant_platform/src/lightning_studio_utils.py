@@ -50,6 +50,7 @@ class LightningStudioConfig:
     studio_session_name: str = DEFAULT_STUDIO_SESSION_NAME
     studio_checkpoint_dir: str = ""
     studio_auto_discover_free: bool = True
+    studio_auto_start_ports: tuple[str, ...] = ()
 
 
 def _git_remote_origin() -> str:
@@ -88,6 +89,11 @@ def load_studio_config(path: str | Path) -> LightningStudioConfig:
         studio_session_name=_clean(str(payload.get("studio_session_name") or "")) or DEFAULT_STUDIO_SESSION_NAME,
         studio_checkpoint_dir=_clean(str(payload.get("studio_checkpoint_dir") or "")) or "",
         studio_auto_discover_free=bool(payload.get("studio_auto_discover_free", True)),
+        studio_auto_start_ports=tuple(
+            str(item).strip()
+            for item in (payload.get("studio_auto_start_ports") or payload.get("auto_start_ports") or [])
+            if str(item).strip()
+        ),
     )
 
 
@@ -226,6 +232,7 @@ def ensure_studio_running(client, project_id: str, studio, config: LightningStud
         return instance
 
     body = IdCodeconfigBody(
+        auto_start_ports=list(config.studio_auto_start_ports) or None,
         compute_config=studio_compute_config(config),
         disable_auto_shutdown=False,
         idle_shutdown_seconds=0,
