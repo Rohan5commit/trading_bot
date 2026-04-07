@@ -210,9 +210,9 @@ def _load_runtime():
         raise RuntimeError(_LOAD_ERROR)
     try:
         import torch
-        from peft import PeftModel
 
         _disable_torchvision_discovery()
+        from peft import PeftModel
         from transformers import AutoModelForCausalLM, AutoTokenizer
 
         torch.set_num_threads(CPU_THREADS)
