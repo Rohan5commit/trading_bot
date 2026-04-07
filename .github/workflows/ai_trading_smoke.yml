@@ -57,7 +57,6 @@ jobs:
           python launch_lightning_inference_studio.py \
             --config quant_platform/configs/lightning_inference_studio.yaml \
             --allow-create \
-            --skip-public-health-check \
             --status-out lightning-inference-status.json
           python - <<'PY'
           import json
@@ -98,6 +97,5 @@ jobs:
         with:
           name: ai-trading-smoke
           path: |
-            lightning-inference-status.json
             results/ai_smoke_*.json
           retention-days: 7

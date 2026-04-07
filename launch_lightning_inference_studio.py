@@ -81,6 +81,19 @@ def _command_payload(result: Any) -> dict[str, Any]:
     return json_safe(result)
 
 
+def _strip_output_fields(value: Any) -> Any:
+    if isinstance(value, dict):
+        sanitized = {}
+        for key, item in value.items():
+            if str(key) == "output":
+                continue
+            sanitized[key] = _strip_output_fields(item)
+        return sanitized
+    if isinstance(value, list):
+        return [_strip_output_fields(item) for item in value]
+    return value
+
+
 def _contains_setup_not_ready(payload: dict[str, Any] | None) -> bool:
     if not payload:
         return False
@@ -219,6 +232,58 @@ def _wait_for_reachable_health(urls: list[str], *, timeout_seconds: int = 1200) 
     raise TimeoutError(f"Timed out waiting for Lightning inference health: {last_error}")
 
 
+def _build_local_health_command(port: int) -> str:
+    script = "\n".join(
+        [
+            "import json",
+            "import os",
+            "import time",
+            "import urllib.error",
+            "import urllib.request",
+            f"url = 'http://127.0.0.1:{port}/health'",
+            "headers = {'Accept': 'application/json'}",
+            "api_key = str(os.getenv('TRAINED_MODEL_API_KEY') or '').strip()",
+            "if api_key:",
+            "    headers['Authorization'] = f'Bearer {api_key}'",
+            "last_error = 'service never became healthy'",
+            "for _ in range(60):",
+            "    try:",
+            "        request = urllib.request.Request(url, headers=headers)",
+            "        with urllib.request.urlopen(request, timeout=30) as response:",
+            "            payload = json.loads(response.read().decode('utf-8'))",
+            "        if isinstance(payload, dict) and payload.get('ok') is True:",
+            "            print(json.dumps(payload))",
+            "            raise SystemExit(0)",
+            "        last_error = json.dumps(payload)",
+            "    except Exception as exc:",
+            "        last_error = str(exc)",
+            "    time.sleep(5)",
+            "print(last_error)",
+            "raise SystemExit(1)",
+        ]
+    )
+    return f"bash -lc {shlex.quote(f\"python - <<'PY'\\n{script}\\nPY\")}"
+
+
+def _wait_for_local_health(client, project_id: str, studio_id: str, *, port: int, session_name: str) -> dict[str, Any]:
+    result = _execute_checked(
+        client,
+        project_id,
+        studio_id,
+        command=_build_local_health_command(port),
+        session_name=session_name,
+        detached=False,
+        max_attempts=1,
+        retry_sleep_seconds=5,
+    )
+    payload = _command_payload(result)
+    raw_output = str(payload.get("output") or "").strip()
+    try:
+        return json.loads(raw_output) if raw_output else {}
+    except json.JSONDecodeError:
+        return {"raw_output": raw_output}
+
+
 def _build_service_command(config) -> str:
     exports = [f"export {key}={shlex.quote(value)}" for key, value in config.run.app_env.items()]
     script_lines = [
@@ -298,13 +363,21 @@ def main() -> None:
     instance_payload = _instance_payload(instance)
     service_port = _service_port(config)
     candidate_urls = _candidate_urls(studio_id, instance_payload, port=service_port)
+    local_health = _wait_for_local_health(
+        client,
+        project.project_id,
+        studio_id,
+        port=service_port,
+        session_name=f"{config.studio_session_name}-local-health-{int(time.time())}",
+    )
     print(
         json.dumps(
             {
                 "stage": "studio-launched",
                 "studio_id": studio_id,
                 "service_port": service_port,
-                "session_status": json_safe(session_status),
+                "session_status": _strip_output_fields(json_safe(session_status)),
+                "local_health": local_health,
                 "candidate_urls": candidate_urls,
             },
             indent=2,
@@ -319,10 +392,11 @@ def main() -> None:
             "studio_id": studio_id,
             "studio_name": str(getattr(studio, "name", "") or ""),
             "instance": instance_payload,
-            "session": json_safe(session_status),
-            "repo_sync": json_safe(repo_sync.to_dict() if hasattr(repo_sync, "to_dict") else repo_sync),
-            "bootstrap": json_safe(bootstrap.to_dict() if hasattr(bootstrap, "to_dict") else bootstrap),
-            "launch": json_safe(launch.to_dict() if hasattr(launch, "to_dict") else launch),
+            "session": _strip_output_fields(json_safe(session_status)),
+            "repo_sync": _strip_output_fields(json_safe(repo_sync.to_dict() if hasattr(repo_sync, "to_dict") else repo_sync)),
+            "bootstrap": _strip_output_fields(json_safe(bootstrap.to_dict() if hasattr(bootstrap, "to_dict") else bootstrap)),
+            "launch": _strip_output_fields(json_safe(launch.to_dict() if hasattr(launch, "to_dict") else launch)),
+            "local_health": local_health,
             "candidate_urls": candidate_urls,
             "inference_url": active_url,
             "public_health_check_skipped": True,
@@ -333,7 +407,7 @@ def main() -> None:
             Path(args.status_out).write_text(payload + "\n")
         return
     try:
-        active_url, health_payload = _wait_for_reachable_health(candidate_urls, timeout_seconds=1200)
+        active_url, health_payload = _wait_for_reachable_health(candidate_urls, timeout_seconds=180)
     except Exception as exc:
         latest_session_status = get_session_status(client, project.project_id, studio_id, config.studio_session_name)
         failure_payload = {
@@ -341,8 +415,9 @@ def main() -> None:
             "studio_id": studio_id,
             "service_port": service_port,
             "candidate_urls": candidate_urls,
+            "local_health": local_health,
             "instance": instance_payload,
-            "session": json_safe(latest_session_status),
+            "session": _strip_output_fields(json_safe(latest_session_status)),
         }
         raise RuntimeError(json.dumps(json_safe(failure_payload), indent=2)) from exc
 
@@ -352,10 +427,11 @@ def main() -> None:
         "studio_id": studio_id,
         "studio_name": str(getattr(studio, "name", "") or ""),
         "instance": instance_payload,
-        "session": json_safe(session_status),
-        "repo_sync": json_safe(repo_sync.to_dict() if hasattr(repo_sync, "to_dict") else repo_sync),
-        "bootstrap": json_safe(bootstrap.to_dict() if hasattr(bootstrap, "to_dict") else bootstrap),
-        "launch": json_safe(launch.to_dict() if hasattr(launch, "to_dict") else launch),
+        "session": _strip_output_fields(json_safe(session_status)),
+        "repo_sync": _strip_output_fields(json_safe(repo_sync.to_dict() if hasattr(repo_sync, "to_dict") else repo_sync)),
+        "bootstrap": _strip_output_fields(json_safe(bootstrap.to_dict() if hasattr(bootstrap, "to_dict") else bootstrap)),
+        "launch": _strip_output_fields(json_safe(launch.to_dict() if hasattr(launch, "to_dict") else launch)),
+        "local_health": local_health,
         "candidate_urls": candidate_urls,
         "inference_url": active_url,
         "health": health_payload,
