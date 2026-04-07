@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import json
 import inspect
+import importlib.util
 import os
 from pathlib import Path
 import re
 import shutil
+import sys
 import tarfile
 from typing import Any, Dict, List
 import zipfile
@@ -29,6 +31,22 @@ _TOKENIZER = None
 _TORCH = None
 _ADAPTER_DIR = None
 _LOAD_ERROR = None
+
+
+def _disable_torchvision_discovery() -> None:
+    original_find_spec = importlib.util.find_spec
+
+    if getattr(importlib.util.find_spec, "_trading_bot_torchvision_patched", False):
+        return
+
+    def patched_find_spec(name: str, *args, **kwargs):
+        if name == "torchvision" or name.startswith("torchvision."):
+            return None
+        return original_find_spec(name, *args, **kwargs)
+
+    patched_find_spec._trading_bot_torchvision_patched = True
+    importlib.util.find_spec = patched_find_spec
+    sys.modules.pop("torchvision", None)
 
 
 def _patch_peft_lora_config_compat() -> None:
@@ -193,6 +211,8 @@ def _load_runtime():
     try:
         import torch
         from peft import PeftModel
+
+        _disable_torchvision_discovery()
         from transformers import AutoModelForCausalLM, AutoTokenizer
 
         torch.set_num_threads(CPU_THREADS)
