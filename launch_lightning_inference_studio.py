@@ -353,13 +353,26 @@ def main() -> None:
         session_name=f"{config.studio_session_name}-bootstrap-{int(time.time())}",
         detached=False,
     )
-    launch, session_status = _launch_service_session(
+    existing_service_session = get_session_status(
         client,
         project.project_id,
         studio_id,
-        command=_build_service_command(config),
-        session_name=config.studio_session_name,
+        config.studio_session_name,
     )
+    if existing_service_session and existing_service_session.get("state") == "running":
+        launch = {
+            "reused_existing_session": True,
+            "session_name": config.studio_session_name,
+        }
+        session_status = existing_service_session
+    else:
+        launch, session_status = _launch_service_session(
+            client,
+            project.project_id,
+            studio_id,
+            command=_build_service_command(config),
+            session_name=config.studio_session_name,
+        )
     instance = resolve_studio_instance(client, project.project_id, studio_id)
     instance_payload = _instance_payload(instance)
     service_port = _service_port(config)
