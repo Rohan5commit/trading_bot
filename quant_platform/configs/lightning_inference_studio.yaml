@@ -9,7 +9,7 @@ studio_repo_url: https://github.com/Rohan5commit/trading_bot.git
 studio_repo_ref: main
 studio_repo_dir: trading-bot-studio
 studio_session_name: trading-bot-inference
-command: python -m uvicorn trained_model_service_runtime:app --host 0.0.0.0 --port 8000
+command: python -m uvicorn trained_model_service_runtime:app --host 0.0.0.0 --port 8510
 work_requirements_file: requirements-lightning-inference.txt
 tracked_paths:
   - results

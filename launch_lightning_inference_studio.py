@@ -10,6 +10,7 @@ import time
 from typing import Any
 
 import requests
+import re
 
 
 ROOT_DIR = Path(__file__).resolve().parent
@@ -36,6 +37,16 @@ from lightning_studio_utils import (  # noqa: E402
 RUNNING_PHASE = "CLOUD_SPACE_INSTANCE_STATE_RUNNING"
 
 
+def _service_port(config) -> int:
+    override = str(os.getenv("LIGHTNING_INFERENCE_PORT") or "").strip()
+    if override:
+        return int(override)
+    match = re.search(r"--port\s+(\d+)", str(config.run.command or ""))
+    if match:
+        return int(match.group(1))
+    return 8000
+
+
 def _instance_payload(instance: Any) -> dict[str, Any]:
     if instance is None:
         return {}
@@ -56,7 +67,7 @@ def _wait_for_instance_phase(client, project_id: str, studio_id: str, *, phases:
     return None
 
 
-def _candidate_urls(studio_id: str, instance_payload: dict[str, Any]) -> list[str]:
+def _candidate_urls(studio_id: str, instance_payload: dict[str, Any], *, port: int) -> list[str]:
     tokens: list[str] = []
     for value in (
         studio_id,
@@ -68,7 +79,7 @@ def _candidate_urls(studio_id: str, instance_payload: dict[str, Any]) -> list[st
             tokens.append(text)
     urls: list[str] = []
     for token in tokens:
-        candidate = f"https://8000-{token}.cloudspaces.litng.ai"
+        candidate = f"https://{port}-{token}.cloudspaces.litng.ai"
         if candidate not in urls:
             urls.append(candidate)
     return urls
@@ -109,7 +120,7 @@ def _build_service_command(config) -> str:
         *exports,
         f"cd {shlex.quote(str((Path(config.studio_root_dir.rstrip('/')) / config.studio_repo_dir).as_posix()))}",
         "if [ -f .venv/bin/activate ]; then source .venv/bin/activate; fi",
-        "python -m uvicorn trained_model_service_runtime:app --host 0.0.0.0 --port 8000",
+        str(config.run.command or "python -m uvicorn trained_model_service_runtime:app --host 0.0.0.0 --port 8510"),
     ]
     return f"bash -lc {shlex.quote(chr(10).join(script_lines))}"
 
@@ -187,8 +198,34 @@ def main() -> None:
     ) or {"state": "unknown"}
     instance = resolve_studio_instance(client, project.project_id, studio_id)
     instance_payload = _instance_payload(instance)
-    candidate_urls = _candidate_urls(studio_id, instance_payload)
-    active_url, health_payload = _wait_for_reachable_health(candidate_urls, timeout_seconds=1200)
+    service_port = _service_port(config)
+    candidate_urls = _candidate_urls(studio_id, instance_payload, port=service_port)
+    print(
+        json.dumps(
+            {
+                "stage": "studio-launched",
+                "studio_id": studio_id,
+                "service_port": service_port,
+                "session_status": json_safe(session_status),
+                "candidate_urls": candidate_urls,
+            },
+            indent=2,
+        ),
+        flush=True,
+    )
+    try:
+        active_url, health_payload = _wait_for_reachable_health(candidate_urls, timeout_seconds=1200)
+    except Exception as exc:
+        latest_session_status = get_session_status(client, project.project_id, studio_id, config.studio_session_name)
+        failure_payload = {
+            "error": str(exc),
+            "studio_id": studio_id,
+            "service_port": service_port,
+            "candidate_urls": candidate_urls,
+            "instance": instance_payload,
+            "session": json_safe(latest_session_status),
+        }
+        raise RuntimeError(json.dumps(json_safe(failure_payload), indent=2)) from exc
 
     report = {
         "project_id": project.project_id,
