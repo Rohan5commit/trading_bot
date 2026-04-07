@@ -303,9 +303,6 @@ def build_bootstrap_command(config: LightningStudioConfig) -> str:
         [
             "set -euo pipefail",
             f"cd {shlex.quote(repo_path)}",
-            "rm -rf .venv",
-            "python -m venv .venv",
-            "source .venv/bin/activate",
             "python -m pip install --upgrade pip",
             f"pip install -r {requirements_file}",
             "pip uninstall -y torchvision torchaudio >/dev/null 2>&1 || true",
