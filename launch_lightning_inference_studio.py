@@ -393,13 +393,32 @@ def main() -> None:
         }
         session_status = existing_service_session
     else:
-        launch, session_status = _launch_service_session(
-            client,
-            project.project_id,
-            studio_id,
-            command=_build_service_command(config),
-            session_name=config.studio_session_name,
-        )
+        try:
+            launch, session_status = _launch_service_session(
+                client,
+                project.project_id,
+                studio_id,
+                command=_build_service_command(config),
+                session_name=config.studio_session_name,
+            )
+        except RuntimeError as exc:
+            recovered_local_health = _probe_local_health(
+                client,
+                project.project_id,
+                studio_id,
+                port=service_port,
+                session_name=f"{config.studio_session_name}-recover-health-{int(time.time())}",
+            )
+            if recovered_local_health and recovered_local_health.get("ok") is True:
+                launch = {
+                    "reused_existing_service_after_launch_error": True,
+                    "session_name": config.studio_session_name,
+                    "launch_error": str(exc),
+                }
+                session_status = existing_service_session or {"state": "running"}
+                local_health = recovered_local_health
+            else:
+                raise
     instance = resolve_studio_instance(client, project.project_id, studio_id)
     instance_payload = _instance_payload(instance)
     candidate_urls = _candidate_urls(studio_id, instance_payload, port=service_port)
