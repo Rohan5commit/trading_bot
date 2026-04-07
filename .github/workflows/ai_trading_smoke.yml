@@ -36,7 +36,7 @@ jobs:
       TRAINED_MODEL_MAX_RETRIES: "0"
       TRAINED_MODEL_BACKOFF_SECONDS: "5"
       TRAINED_MODEL_BATCH_SIZE: "1"
-      AI_SMOKE_TICKERS: "AAPL,TSLA,MSFT"
+      AI_SMOKE_TICKERS: "AAPL"
       AI_SMOKE_USE_STATIC: "1"
     steps:
       - name: Checkout

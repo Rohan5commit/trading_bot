@@ -30,6 +30,7 @@ from lightning_studio_utils import (  # noqa: E402
 RESULT_BEGIN = "__AI_SMOKE_RESULT_BEGIN__"
 RESULT_END = "__AI_SMOKE_RESULT_END__"
 RESULT_PATH_PREFIX = "__AI_SMOKE_RESULT_PATH__="
+RESULT_CACHE_PATH = "results/ai_smoke_studio_current.json"
 
 
 def _resolved_project_id() -> str | None:
@@ -171,15 +172,47 @@ def _build_smoke_command(config, *, service_port: int) -> str:
         *export_lines,
         f"cd {shlex.quote(str(repo_dir))}",
         "if [ -f .venv/bin/activate ]; then source .venv/bin/activate; fi",
+        f"rm -f {shlex.quote(RESULT_CACHE_PATH)}",
         "python wait_for_trained_model.py",
         "python run_ai_trading_smoke.py",
         "latest=$(ls -1t results/ai_smoke_*.json | head -n1)",
+        f"cp \"$latest\" {shlex.quote(RESULT_CACHE_PATH)}",
         f"echo {shlex.quote(RESULT_PATH_PREFIX)}\"$latest\"",
         f"echo {shlex.quote(RESULT_BEGIN)}",
         'cat "$latest"',
         f"echo {shlex.quote(RESULT_END)}",
     ]
     return f"bash -lc {shlex.quote(chr(10).join(script_lines))}"
+
+
+def _fetch_result_file(client, project_id: str, studio_id: str, *, config, session_name: str) -> tuple[str | None, dict[str, Any] | None]:
+    repo_dir = Path(config.studio_root_dir.rstrip("/")) / config.studio_repo_dir
+    command = "\n".join(
+        [
+            "set -euo pipefail",
+            f"cd {shlex.quote(str(repo_dir))}",
+            f"if [ ! -f {shlex.quote(RESULT_CACHE_PATH)} ]; then exit 3; fi",
+            f"echo {shlex.quote(RESULT_PATH_PREFIX)}{RESULT_CACHE_PATH}",
+            f"echo {shlex.quote(RESULT_BEGIN)}",
+            f"cat {shlex.quote(RESULT_CACHE_PATH)}",
+            f"echo {shlex.quote(RESULT_END)}",
+        ]
+    )
+    try:
+        payload = _checked_execute(
+            client,
+            project_id,
+            studio_id,
+            command=f"bash -lc {shlex.quote(command)}",
+            session_name=session_name,
+        )
+    except Exception:
+        return None, None
+    output = str(payload.get("output") or "")
+    try:
+        return _extract_result(output)
+    except Exception:
+        return None, None
 
 
 def _extract_result(output: str) -> tuple[str | None, dict[str, Any]]:
@@ -238,6 +271,29 @@ def main() -> None:
     try:
         result_path, result_payload = _extract_result(output_text)
     except Exception as exc:  # noqa: BLE001
+        result_path, result_payload = _fetch_result_file(
+            client,
+            project.project_id,
+            studio_id,
+            config=config,
+            session_name=f"{session_name}-result-fetch",
+        )
+        if result_payload is not None:
+            out_path = Path(args.result_out)
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            out_path.write_text(json.dumps(result_payload, indent=2) + "\n")
+            summary = {
+                "ok": True,
+                "project_id": project.project_id,
+                "project_name": project.name,
+                "studio_id": studio_id,
+                "studio_name": str(getattr(studio, "name", "") or ""),
+                "result_path": result_path,
+                "result_out": str(out_path),
+                "recovered_via_file_fetch": True,
+            }
+            print(json.dumps(summary, indent=2))
+            return
         raise RuntimeError(
             json.dumps(
                 {
