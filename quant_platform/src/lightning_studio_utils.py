@@ -4,6 +4,7 @@ from dataclasses import dataclass
 import json
 import os
 from pathlib import Path
+import re
 import shlex
 import time
 from typing import Any
@@ -33,6 +34,7 @@ DEFAULT_STUDIO_REPO_DIR = "train-once-quant-platform-studio"
 DEFAULT_STUDIO_ROOT = "/teamspace/studios/this_studio"
 DEFAULT_STUDIO_SESSION_NAME = "train-once-build-data"
 RUNNING_PHASE = "CLOUD_SPACE_INSTANCE_STATE_RUNNING"
+RATE_LIMIT_WAIT_RE = re.compile(r"please wait\s+(\d+)\s+seconds", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -213,6 +215,28 @@ def resolve_studio_instance(client, project_id: str, studio_id: str):
     return None
 
 
+def _rate_limit_delay_seconds(exc: ApiException) -> int | None:
+    if getattr(exc, "status", None) != 429:
+        return None
+    body = str(getattr(exc, "body", "") or "")
+    match = RATE_LIMIT_WAIT_RE.search(body)
+    if match:
+        return max(1, int(match.group(1)))
+    return 10
+
+
+def _call_with_rate_limit_retry(func, *args, max_attempts: int = 6, **kwargs):
+    for attempt in range(1, max_attempts + 1):
+        try:
+            return func(*args, **kwargs)
+        except ApiException as exc:
+            delay_seconds = _rate_limit_delay_seconds(exc)
+            if delay_seconds is None or attempt >= max_attempts:
+                raise
+            time.sleep(delay_seconds)
+    raise RuntimeError("Lightning Studio API retry loop exited unexpectedly.")
+
+
 def create_studio(client, project_id: str, config: LightningStudioConfig):
     desired_name = config.studio_name or f"{config.run.app_name}-studio"
     body = ProjectIdCloudspacesBody(
@@ -249,8 +273,14 @@ def ensure_studio_running(client, project_id: str, studio, config: LightningStud
         idle_shutdown_seconds=0,
         ide=config.studio_ide,
     )
-    client.cloud_space_service_update_cloud_space_instance_config(body=body, project_id=project_id, id=studio_id)
-    client.cloud_space_service_start_cloud_space_instance(
+    _call_with_rate_limit_retry(
+        client.cloud_space_service_update_cloud_space_instance_config,
+        body=body,
+        project_id=project_id,
+        id=studio_id,
+    )
+    _call_with_rate_limit_retry(
+        client.cloud_space_service_start_cloud_space_instance,
         body=IdStartBody(compute_config=studio_compute_config(config)),
         project_id=project_id,
         id=studio_id,
