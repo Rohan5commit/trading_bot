@@ -10,32 +10,17 @@ concurrency:
 jobs:
   ai-smoke:
     runs-on: ubuntu-latest
-    timeout-minutes: 75
+    timeout-minutes: 20
     env:
       PYTHONUNBUFFERED: "1"
       TWELVEDATA_API_KEYS: ${{ secrets.TWELVEDATA_API_KEYS }}
       ALPHAVANTAGE_API_KEYS: ${{ secrets.ALPHAVANTAGE_API_KEYS }}
       NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
-      LIGHTNING_USERNAME: ${{ secrets.LIGHTNING_USERNAME }}
-      LIGHTNING_API_KEY: ${{ secrets.LIGHTNING_API_KEY }}
-      LIGHTNING_USER_ID: ${{ secrets.LIGHTNING_USER_ID }}
-      LIGHTNING_CLOUD_PROJECT_ID: "01kkqt8mzptzp8svph6p4nt915"
-      GITHUB_TOKEN: ${{ github.token }}
       TRAINED_MODEL_INFERENCE_URL: ${{ secrets.TRAINED_MODEL_INFERENCE_URL }}
       TRAINED_MODEL_API_KEY: ${{ secrets.TRAINED_MODEL_API_KEY }}
-      TRAINED_MODEL_BASE_MODEL: "Qwen/Qwen2.5-7B-Instruct"
-      TRAINED_MODEL_NAME: "quant-trained-trading-model"
-      TRAINED_MODEL_CPU_THREADS: "8"
-      LIGHTNING_INFERENCE_COMPUTE_NAME: "cpu-4"
-      LIGHTNING_INFERENCE_DISK_GB: "80"
-      LIGHTNING_INFERENCE_PORT: "8000"
-      TRAINED_MODEL_ADAPTER_ARCHIVE_URL: ${{ secrets.TRAINED_MODEL_ADAPTER_ARCHIVE_URL }}
-      TRAINED_MODEL_ADAPTER_ARCHIVE_TOKEN: ${{ secrets.TRAINED_MODEL_ADAPTER_ARCHIVE_TOKEN }}
-      TRAINED_MODEL_READY_TIMEOUT_SECONDS: "1200"
-      TRAINED_MODEL_READY_POLL_SECONDS: "15"
-      TRAINED_MODEL_TIMEOUT_SECONDS: "900"
-      TRAINED_MODEL_MAX_RETRIES: "0"
-      TRAINED_MODEL_BACKOFF_SECONDS: "10"
+      TRAINED_MODEL_TIMEOUT_SECONDS: "180"
+      TRAINED_MODEL_MAX_RETRIES: "1"
+      TRAINED_MODEL_BACKOFF_SECONDS: "5"
       AI_SMOKE_TICKERS: "AAPL,TSLA,MSFT"
       AI_SMOKE_USE_STATIC: "1"
     steps:
@@ -50,27 +35,9 @@ jobs:
       - name: Install dependencies
         run: |
           pip install -r requirements.txt
-          pip install "lightning[app]==2.3.2" lightning-cloud==0.5.70
 
-      - name: Launch Lightning inference Studio
-        run: |
-          python launch_lightning_inference_studio.py \
-            --config quant_platform/configs/lightning_inference_studio.yaml \
-            --allow-create \
-            --force-restart-instance \
-            --skip-public-health-check \
-            --status-out lightning-inference-status.json
-
-      - name: Run AI-only smoke test in Lightning Studio
-        run: |
-          python run_ai_trading_smoke_studio.py \
-            --config quant_platform/configs/lightning_inference_studio.yaml \
-            --status-in lightning-inference-status.json \
-            --result-out results/ai_smoke_lightning_studio.json
-
-      - name: Stop Lightning inference Studio
-        if: always()
-        run: python stop_lightning_inference_studio.py --config quant_platform/configs/lightning_inference_studio.yaml
+      - name: Run AI-only smoke test
+        run: python run_ai_trading_smoke.py
 
       - name: Upload AI smoke artifacts
         if: always()
@@ -79,5 +46,4 @@ jobs:
           name: ai-trading-smoke
           path: |
             results/ai_smoke_*.json
-            lightning-inference-status.json
           retention-days: 7
