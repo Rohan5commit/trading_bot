@@ -147,7 +147,11 @@ def _normalized_env_items(raw_env: Any) -> dict[str, str]:
         key_text = str(key).strip()
         if not key_text:
             continue
-        normalized[key_text] = "" if value is None else str(value)
+        value_text = "" if value is None else str(value)
+        match = re.fullmatch(r"\$\{([A-Z0-9_]+)\}", value_text)
+        if match:
+            value_text = os.environ.get(match.group(1), "")
+        normalized[key_text] = value_text
     return normalized
 
 

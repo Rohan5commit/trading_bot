@@ -6,7 +6,7 @@ on:
 jobs:
   ai-smoke:
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 45
     env:
       PYTHONUNBUFFERED: "1"
       TWELVEDATA_API_KEYS: ${{ secrets.TWELVEDATA_API_KEYS }}
@@ -17,10 +17,15 @@ jobs:
       LIGHTNING_USER_ID: ${{ secrets.LIGHTNING_USER_ID }}
       TRAINED_MODEL_INFERENCE_URL: ${{ secrets.TRAINED_MODEL_INFERENCE_URL }}
       TRAINED_MODEL_API_KEY: ${{ secrets.TRAINED_MODEL_API_KEY }}
-      TRAINED_MODEL_READY_TIMEOUT_SECONDS: "720"
+      TRAINED_MODEL_BASE_MODEL: "Qwen/Qwen2.5-7B-Instruct"
+      TRAINED_MODEL_NAME: "quant-trained-trading-model"
+      TRAINED_MODEL_CPU_THREADS: "8"
+      TRAINED_MODEL_ADAPTER_ARCHIVE_URL: ${{ secrets.TRAINED_MODEL_ADAPTER_ARCHIVE_URL }}
+      TRAINED_MODEL_ADAPTER_ARCHIVE_TOKEN: ${{ secrets.TRAINED_MODEL_ADAPTER_ARCHIVE_TOKEN }}
+      TRAINED_MODEL_READY_TIMEOUT_SECONDS: "1200"
       TRAINED_MODEL_READY_POLL_SECONDS: "15"
-      TRAINED_MODEL_TIMEOUT_SECONDS: "180"
-      TRAINED_MODEL_MAX_RETRIES: "1"
+      TRAINED_MODEL_TIMEOUT_SECONDS: "900"
+      TRAINED_MODEL_MAX_RETRIES: "0"
       TRAINED_MODEL_BACKOFF_SECONDS: "10"
       AI_SMOKE_TICKERS: "AAPL,TSLA,MSFT"
       AI_SMOKE_USE_STATIC: "1"
@@ -38,19 +43,51 @@ jobs:
           pip install -r requirements.txt
           pip install lightning-app==2.3.2 lightning-cloud==0.5.70
 
-      - name: Wake Lightning CloudSpace
-        run: python ensure_lightning_inference_cloudspace.py
+      - name: Launch Lightning inference Studio
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          python launch_lightning_inference_studio.py \
+            --config quant_platform/configs/lightning_inference_studio.yaml \
+            --allow-create \
+            --force-restart-instance \
+            --status-out lightning-inference-status.json
+
+      - name: Export Lightning inference URL
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          payload = json.loads(Path("lightning-inference-status.json").read_text())
+          url = str(payload.get("inference_url") or "").strip()
+          if not url:
+              raise SystemExit("lightning-inference-status.json did not include inference_url")
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as handle:
+              handle.write(f"TRAINED_MODEL_INFERENCE_URL={url}\n")
+          print(json.dumps({"inference_url": url}, indent=2))
+          PY
 
       - name: Wait for trained model endpoint
         run: python wait_for_trained_model.py
 
+      - name: Warm trained model
+        run: python warm_trained_model.py
+
       - name: Run AI-only smoke test
         run: python run_ai_trading_smoke.py
+
+      - name: Stop Lightning inference Studio
+        if: always()
+        run: python stop_lightning_inference_studio.py --config quant_platform/configs/lightning_inference_studio.yaml
 
       - name: Upload AI smoke artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: ai-trading-smoke
-          path: results/ai_smoke_*.json
+          path: |
+            results/ai_smoke_*.json
+            lightning-inference-status.json
           retention-days: 7

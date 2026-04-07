@@ -1,0 +1,26 @@
+app_name: trading-bot-lightning-inference
+studio_name: trading-bot-inference
+studio_auto_discover_free: false
+studio_cluster_id: gcp-lightning-public-prod
+studio_compute_name: cpu-4
+studio_disk_size_gb: 80
+studio_ide: jupyterlab
+studio_repo_url: https://github.com/Rohan5commit/trading_bot.git
+studio_repo_ref: main
+studio_repo_dir: trading-bot-studio
+studio_session_name: trading-bot-inference
+command: python -m uvicorn trained_model_service_runtime:app --host 0.0.0.0 --port 8000
+work_requirements_file: requirements-lightning-inference.txt
+tracked_paths:
+  - results
+cloud_cluster_id: lightning-public-prod
+cloud_compute_name: cpu-2
+app_env:
+  TRAINED_MODEL_BASE_MODEL: ${TRAINED_MODEL_BASE_MODEL}
+  TRAINED_MODEL_NAME: ${TRAINED_MODEL_NAME}
+  TRAINED_MODEL_CPU_THREADS: ${TRAINED_MODEL_CPU_THREADS}
+  TRAINED_MODEL_API_KEY: ${TRAINED_MODEL_API_KEY}
+  TRAINED_MODEL_ADAPTER_ARCHIVE_URL: ${TRAINED_MODEL_ADAPTER_ARCHIVE_URL}
+  TRAINED_MODEL_ADAPTER_ARCHIVE_TOKEN: ${TRAINED_MODEL_ADAPTER_ARCHIVE_TOKEN}
+  TRAINED_MODEL_CACHE_DIR: /teamspace/studios/this_studio/.cache/trained_model_service
+  TOKENIZERS_PARALLELISM: "false"
