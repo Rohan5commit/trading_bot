@@ -173,6 +173,8 @@ def propose_trades_with_llm(config, candidates, max_positions=10, allow_shorts=T
         return [], status
 
     predictions = []
+    predictions_seen = 0
+    neutral_predictions = 0
     failures = []
     batch_predictions = client.predict_candidates(prompt_candidates)
     for candidate, prediction in zip(prompt_candidates, batch_predictions):
@@ -185,8 +187,10 @@ def propose_trades_with_llm(config, candidates, max_positions=10, allow_shorts=T
             )
             continue
 
+        predictions_seen += 1
         score = float(prediction.get("score", 0.0) or 0.0)
         if score == 0.0:
+            neutral_predictions += 1
             continue
 
         side = "LONG" if score > 0 else "SHORT"
@@ -209,8 +213,15 @@ def propose_trades_with_llm(config, candidates, max_positions=10, allow_shorts=T
     status["model_used"] = getattr(client, "last_model_used", None) or client.model_identifier
     status["prediction_failures"] = failures[:10]
     status["candidates_scored"] = len(predictions)
+    status["predictions_seen"] = predictions_seen
+    status["neutral_predictions"] = neutral_predictions
 
     if not predictions:
+        if predictions_seen > 0 and neutral_predictions == predictions_seen:
+            status["ok"] = True
+            status["skipped_reason"] = "all_neutral"
+            status["error"] = None
+            return [], status
         status["error"] = getattr(client, "last_error", None) or "No usable trained-model predictions."
         return [], status
 
@@ -221,7 +232,9 @@ def propose_trades_with_llm(config, candidates, max_positions=10, allow_shorts=T
         max_shorts=max_shorts,
     )
     if not picked:
-        status["error"] = "Trained model did not produce tradeable signals."
+        status["ok"] = True
+        status["skipped_reason"] = "no_tradeable_signals"
+        status["error"] = None
         return [], status
 
     min_total_weight = float(ai_cfg.get("min_total_weight", 0.90) or 0.90)

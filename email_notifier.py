@@ -188,6 +188,10 @@ class EmailNotifier:
                     cap_txt = f"${float(cap):,.2f}" if isinstance(cap, (int, float)) else "N/A"
                     slots_txt = str(slots) if slots is not None else "N/A"
                     body_lines.append(f"AI LLM Call: SKIPPED (no available capacity; cash={cap_txt}, slots={slots_txt})")
+                elif skipped_reason == "all_neutral":
+                    body_lines.append("AI LLM Call: COMPLETED (all model signals neutral; no entries)")
+                elif skipped_reason == "no_tradeable_signals":
+                    body_lines.append("AI LLM Call: COMPLETED (signals filtered as non-tradeable)")
                 if seen is not None:
                     body_lines.append(f"AI Candidates: {seen}")
                 if disallow is not None:

@@ -1006,6 +1006,12 @@ class DailyBacktester:
                 "invested_notional": ai_invested_notional,
                 "available_cash": ai_available_cash,
                 "initial_capital": ai_initial_capital,
+                "ai_llm_ok": bool((ai_llm_status or {}).get("ok")) if isinstance(ai_llm_status, dict) else False,
+                "ai_llm_error": str((ai_llm_status or {}).get("error") or "") if isinstance(ai_llm_status, dict) else "",
+                "ai_llm_skipped_reason": str((ai_llm_status or {}).get("skipped_reason") or "") if isinstance(ai_llm_status, dict) else "",
+                "ai_model_used": str((ai_llm_status or {}).get("model_used") or "") if isinstance(ai_llm_status, dict) else "",
+                "ai_candidates_seen": int((ai_llm_status or {}).get("candidates_seen") or (ai_llm_status or {}).get("candidates_built") or 0) if isinstance(ai_llm_status, dict) else 0,
+                "ai_candidates_scored": int((ai_llm_status or {}).get("candidates_scored") or 0) if isinstance(ai_llm_status, dict) else 0,
             }
 
             pd.DataFrame([ai_report]).to_csv(
