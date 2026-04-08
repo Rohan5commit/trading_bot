@@ -1,6 +1,6 @@
 # General Configuration
 universe:
-  source: ./universe/sp500.csv
+  source: ./universe/us_top1000.csv
   auto_update: true
   min_market_cap: 1000000000  # $1B
 
@@ -69,11 +69,8 @@ news:
   enabled: true
 
 llm:
-  enabled: true
-  provider: "nvidia"
-  model: "stockmark/stockmark-2-100b-instruct"
-  base_url: "https://integrate.api.nvidia.com/v1/chat/completions"
-  api_key_env: "NVIDIA_API_KEY"
+  enabled: false
+  provider: "local_news_sentiment"
   timeout_seconds: 20
   max_retries: 2
   backoff_seconds: 1.0
@@ -82,6 +79,7 @@ llm:
   max_tokens: 4096
   news_sentiment:
     enabled: true
+    local_fallback_enabled: true
     batch_size: 8
     max_articles_per_symbol: 30
     min_confidence: 0.15
@@ -122,9 +120,9 @@ ai_trading:
   price_lookback_days: 30
   feature_lookback_days: 80
   news_window_days: 7
-  prompt_candidates_limit: 200
-  # Force AI weights to deploy most available cash each run.
-  min_total_weight: 0.90
+  prompt_candidates_limit: 1000
+  # Keep idle cash low without hard-clipping exact cash usage.
+  min_total_weight: 0.96
   decision_engine: "trained_model"
   trained_model:
     backend: "http"
@@ -133,7 +131,7 @@ ai_trading:
     api_key_env: "TRAINED_MODEL_API_KEY"
     # The endpoint is expected to be a remote CPU inference service (for example Lightning AI).
     timeout_seconds: 1200
-    batch_size: 2
+    batch_size: 8
     max_retries: 0
     backoff_seconds: 2
     model_name: "quant-trained-trading-model"
@@ -150,10 +148,10 @@ trading:
   short_threshold: -0.002
   take_profit_pct: 0.03
   stop_loss_pct: null  # Bot-determined risk
-  # Force at least 90% of available capital to be deployed (prevents excessive cash drag)
-  min_total_weight: 0.90
+  # Force at least 95% of available capital to be deployed (prevents excessive cash drag)
+  min_total_weight: 0.95
   # Soft cap on idle cash. If cash exceeds this fraction, the bot relaxes signal filters.
-  max_cash_pct: 0.50
+  max_cash_pct: 0.20
 
 risk:
   max_position_equity_pct: 0.10

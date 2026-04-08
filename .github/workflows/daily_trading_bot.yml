@@ -33,7 +33,7 @@ jobs:
       TRAINED_MODEL_READY_POLL_SECONDS: "5"
       TRAINED_MODEL_MAX_RETRIES: "1"
       TRAINED_MODEL_BACKOFF_SECONDS: "5"
-      TRAINED_MODEL_BATCH_SIZE: "2"
+      TRAINED_MODEL_BATCH_SIZE: "8"
       LIGHTNING_USERNAME: ${{ secrets.LIGHTNING_USERNAME }}
       LIGHTNING_API_KEY: ${{ secrets.LIGHTNING_API_KEY }}
       LIGHTNING_USER_ID: ${{ secrets.LIGHTNING_USER_ID }}
@@ -100,8 +100,6 @@ jobs:
           SENDER_EMAIL: ${{ secrets.SENDER_EMAIL }}
           SENDER_PASSWORD: ${{ secrets.SENDER_PASSWORD }}
           RECIPIENT_EMAIL: ${{ secrets.RECIPIENT_EMAIL }}
-          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
-          NVIDIA_API_KEY_ID: ${{ secrets.NVIDIA_API_KEY_ID }}
           TRAINED_MODEL_API_KEY: ${{ secrets.TRAINED_MODEL_API_KEY }}
           TWELVEDATA_API_KEYS: ${{ secrets.TWELVEDATA_API_KEYS }}
           ARM_LIVE_TRADING: ${{ secrets.ARM_LIVE_TRADING }}
@@ -117,8 +115,6 @@ jobs:
           SENDER_EMAIL: ${{ secrets.SENDER_EMAIL }}
           SENDER_PASSWORD: ${{ secrets.SENDER_PASSWORD }}
           RECIPIENT_EMAIL: ${{ secrets.RECIPIENT_EMAIL }}
-          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
-          NVIDIA_API_KEY_ID: ${{ secrets.NVIDIA_API_KEY_ID }}
           TRAINED_MODEL_API_KEY: ${{ secrets.TRAINED_MODEL_API_KEY }}
           TWELVEDATA_API_KEYS: ${{ secrets.TWELVEDATA_API_KEYS }}
           ARM_LIVE_TRADING: ${{ secrets.ARM_LIVE_TRADING }}
@@ -128,7 +124,7 @@ jobs:
           TRAINED_MODEL_READY_TIMEOUT_SECONDS: "1200"
           TRAINED_MODEL_READY_POLL_SECONDS: "15"
           TRAINED_MODEL_MAX_RETRIES: "0"
-          TRAINED_MODEL_BATCH_SIZE: "2"
+          TRAINED_MODEL_BATCH_SIZE: "8"
           TRAINED_MODEL_WARMUP_TIMEOUT_SECONDS: "1800"
           TRAINED_MODEL_CPU_THREADS: "8"
         run: |

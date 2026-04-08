@@ -71,6 +71,56 @@ def _chunked(items, size):
         yield items[idx:idx + size]
 
 
+# Lightweight fallback so daily runs can still score headline tone without external LLM keys.
+_POSITIVE_TOKENS = (
+    "beat",
+    "beats",
+    "surge",
+    "rally",
+    "up",
+    "gain",
+    "growth",
+    "upgrade",
+    "raised",
+    "record",
+    "strong",
+    "outperform",
+    "buyback",
+    "profit",
+    "optimistic",
+)
+_NEGATIVE_TOKENS = (
+    "miss",
+    "misses",
+    "drop",
+    "falls",
+    "down",
+    "decline",
+    "downgrade",
+    "cut",
+    "lowered",
+    "weak",
+    "lawsuit",
+    "probe",
+    "investigation",
+    "loss",
+    "bankruptcy",
+    "warning",
+)
+
+
+def _headline_sentiment_local(headline):
+    text = str(headline or "").strip().lower()
+    if not text:
+        return 0.0
+    pos = sum(1 for token in _POSITIVE_TOKENS if token in text)
+    neg = sum(1 for token in _NEGATIVE_TOKENS if token in text)
+    raw = pos - neg
+    if raw == 0:
+        return 0.0
+    return _clamp(raw / 3.0, -1.0, 1.0)
+
+
 class NvidiaChatClient:
     def __init__(self, llm_cfg):
         self.enabled = llm_cfg.get("enabled", False)
@@ -263,6 +313,7 @@ class NewsSentimentScorer:
         llm_cfg = config.get("llm", {})
         sentiment_cfg = llm_cfg.get("news_sentiment", {})
         self.enabled = llm_cfg.get("enabled", False) and sentiment_cfg.get("enabled", False)
+        self.local_fallback_enabled = bool(sentiment_cfg.get("local_fallback_enabled", True))
         self.max_articles = sentiment_cfg.get("max_articles_per_symbol", 30)
         self.batch_size = sentiment_cfg.get("batch_size", 8)
         self.min_confidence = sentiment_cfg.get("min_confidence", 0.15)
@@ -274,23 +325,32 @@ class NewsSentimentScorer:
             "batches": 0,
             "errors": 0,
             "skipped": 0,
+            "local_scored": 0,
             "last_error": None,
         }
 
     def score(self, symbol, items):
-        if not self.enabled:
+        if not items:
             return items
+        limited_items = items[:self.max_articles] if self.max_articles else items
+
+        if not self.enabled:
+            if self.local_fallback_enabled:
+                self.stats["attempts"] += 1
+                self.stats["local_scored"] += self._score_local_fallback(limited_items)
+            return items
+
         self.stats["attempts"] += 1
         if not self.client.is_ready():
             self.stats["errors"] += 1
+            self.stats["last_error"] = "LLM unavailable; using local sentiment fallback."
+            if self.local_fallback_enabled:
+                self.stats["local_scored"] += self._score_local_fallback(limited_items)
+                logger.warning(self.stats["last_error"])
+                return items
             self.stats["skipped"] += 1
-            self.stats["last_error"] = "LLM unavailable or NVIDIA_API_KEY missing."
-            logger.warning(self.stats["last_error"])
-            return items
-        if not items:
             return items
 
-        limited_items = items[:self.max_articles] if self.max_articles else items
         if self.max_articles and len(items) > self.max_articles:
             logger.info(
                 "Limiting sentiment scoring to %d articles for %s.",
@@ -364,6 +424,13 @@ class NewsSentimentScorer:
 
             batch[idx]["sentiment_score"] = sentiment
         return True
+
+    def _score_local_fallback(self, items):
+        scored = 0
+        for item in list(items or []):
+            item["sentiment_score"] = float(_headline_sentiment_local(item.get("title")))
+            scored += 1
+        return scored
 
     def get_status(self):
         return dict(self.stats)

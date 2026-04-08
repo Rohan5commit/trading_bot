@@ -4,7 +4,7 @@
 - **Python 3.9+**
 - **Dependencies**: `pandas`, `requests`, `pyyaml`, `yfinance`, `python-dotenv`
 - **Email Configuration**: Gmail App Password required in `.env`.
-- **News Sentiment (Optional)**: NVIDIA API key(s) in `.env` for news sentiment scoring.
+- **News Sentiment (Optional)**: Local fallback scoring is built in (no external LLM key required).
 - **AI Trading Bot**: Remote trained-model inference endpoint URL in `.env` or GitHub secrets.
 
 ## 2. Setup
@@ -15,13 +15,10 @@
    ```bash
    cp .env.example .env
    ```
-5. (Optional) NVIDIA keys:
-   - `NVIDIA_API_KEY` enables News/LLM sentiment if `news.enabled: true` in `config.yaml`.
-   - `NVIDIA_REASONING_API_KEY` is no longer used by the AI trading bot.
-   - Do not commit `.env` (it is gitignored).
-6. AI trading endpoint:
+5. AI trading endpoint:
    - `TRAINED_MODEL_INFERENCE_URL` points the AI trading bot at the hosted trained-model service.
    - `TRAINED_MODEL_API_KEY` optionally protects that endpoint.
+   - Do not commit `.env` (it is gitignored).
 
 ## 3. Daily Workflow
 The bot is fully automated:

@@ -33,13 +33,11 @@ trading_bot/
 ## Secrets
 
 ### Still used
-- `NVIDIA_API_KEY`: news sentiment path
 - `TRAINED_MODEL_INFERENCE_URL`: deployed inference URL for the AI trading bot
 - `TRAINED_MODEL_API_KEY`: optional auth for the trained-model endpoint
 - `TWELVEDATA_API_KEYS`, `ALPHAVANTAGE_API_KEYS`: optional price providers
 
 ### No longer used by the AI trading bot
-- `NVIDIA_REASONING_API_KEY`
 - `MODAL_TOKEN_ID`
 - `MODAL_TOKEN_SECRET`
 
