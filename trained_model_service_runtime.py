@@ -451,6 +451,17 @@ def model_info() -> dict[str, Any]:
     }
 
 
+@app.post("/warmup", dependencies=[Depends(_require_api_key)])
+def warmup() -> dict[str, Any]:
+    model, tokenizer, _torch = _load_runtime()
+    return {
+        "ok": True,
+        "model": MODEL_NAME,
+        "base_model": BASE_MODEL,
+        "ready": model is not None and tokenizer is not None,
+    }
+
+
 @app.post("/predict_trade_candidates", dependencies=[Depends(_require_api_key)])
 def predict_trade_candidates(payload: Dict[str, Any]) -> dict[str, Any]:
     candidates = _normalize_candidates(payload)

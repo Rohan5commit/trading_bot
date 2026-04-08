@@ -129,6 +129,7 @@ jobs:
           TRAINED_MODEL_READY_POLL_SECONDS: "15"
           TRAINED_MODEL_MAX_RETRIES: "0"
           TRAINED_MODEL_BATCH_SIZE: "1"
+          TRAINED_MODEL_WARMUP_TIMEOUT_SECONDS: "1800"
           TRAINED_MODEL_CPU_THREADS: "8"
         run: |
           extra_args=""

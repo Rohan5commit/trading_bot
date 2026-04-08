@@ -81,6 +81,7 @@ def _build_daily_command(config, *, service_port: int, reset_ai_positions: bool,
         "TRAINED_MODEL_MAX_RETRIES",
         "TRAINED_MODEL_BACKOFF_SECONDS",
         "TRAINED_MODEL_BATCH_SIZE",
+        "TRAINED_MODEL_WARMUP_TIMEOUT_SECONDS",
     ]
     for key in passthrough_keys:
         value = os.getenv(key)
@@ -192,6 +193,37 @@ def _build_daily_command(config, *, service_port: int, reset_ai_positions: bool,
         ]
     )
 
+    warmup_script = "\n".join(
+        [
+            "import json",
+            "import os",
+            "import time",
+            "import requests",
+            "",
+            "base_url = str(os.getenv('TRAINED_MODEL_INFERENCE_URL') or '').strip().rstrip('/')",
+            "if not base_url:",
+            "    print(json.dumps({'trained_model_warmup': 'skipped', 'reason': 'missing_inference_url'}))",
+            "    raise SystemExit(0)",
+            "warmup_url = base_url + '/warmup'",
+            "api_key = str(os.getenv('TRAINED_MODEL_API_KEY') or '').strip()",
+            "headers = {'Content-Type': 'application/json'}",
+            "if api_key:",
+            "    headers['Authorization'] = f'Bearer {api_key}'",
+            "timeout_seconds = int(float(os.getenv('TRAINED_MODEL_WARMUP_TIMEOUT_SECONDS') or 1800))",
+            "t0 = time.time()",
+            "response = requests.post(warmup_url, headers=headers, timeout=timeout_seconds)",
+            "response.raise_for_status()",
+            "payload = response.json() if response.content else {}",
+            "print(json.dumps({",
+            "    'trained_model_warmup': 'ok',",
+            "    'warmup_url': warmup_url,",
+            "    'elapsed_seconds': round(time.time() - t0, 2),",
+            "    'status_code': response.status_code,",
+            "    'payload': payload,",
+            "}, indent=2))",
+        ]
+    )
+
     script_lines = [
         "set -euo pipefail",
         *export_lines,
@@ -200,6 +232,9 @@ def _build_daily_command(config, *, service_port: int, reset_ai_positions: bool,
         f"rm -f {shlex.quote(RESULT_CACHE_PATH)} {shlex.quote(LOG_CACHE_PATH)}",
         "python - <<'PY'",
         prep_script,
+        "PY",
+        "python - <<'PY'",
+        warmup_script,
         "PY",
         "run_rc=0",
         f"python main.py daily_job 2>&1 | tee {shlex.quote(LOG_CACHE_PATH)} || run_rc=$?",
