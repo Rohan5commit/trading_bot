@@ -87,6 +87,7 @@ jobs:
         run: |
           python launch_lightning_inference_studio.py \
             --config quant_platform/configs/lightning_inference_studio.yaml \
+            --force-restart-instance \
             --skip-public-health-check \
             --status-out lightning-inference-status-local.json
 
