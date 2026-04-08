@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import importlib.util
 import os
+from pathlib import Path
+import subprocess
+import sys
 
 try:
     from lightning.app import CloudCompute, LightningApp, LightningFlow, LightningWork
@@ -11,6 +15,57 @@ except ModuleNotFoundError:
 DEFAULT_COMPUTE_NAME = os.getenv("LIGHTNING_INFERENCE_COMPUTE_NAME", "cpu-8")
 DEFAULT_DISK_SIZE_GB = int(os.getenv("LIGHTNING_INFERENCE_DISK_GB", "80") or 80)
 DEFAULT_PORT = int(os.getenv("LIGHTNING_INFERENCE_PORT", "8000") or 8000)
+RUNTIME_REQUIREMENTS_FILE = Path(__file__).with_name("runtime-requirements.txt")
+_BOOTSTRAP_SENTINEL = Path("/tmp/trading_bot_lightning_runtime_ready")
+_REQUIRED_MODULES = (
+    "fastapi",
+    "uvicorn",
+    "requests",
+    "torch",
+    "huggingface_hub",
+    "tokenizers",
+    "transformers",
+    "peft",
+    "accelerate",
+    "safetensors",
+    "sentencepiece",
+)
+
+
+def _missing_runtime_modules() -> list[str]:
+    return [module for module in _REQUIRED_MODULES if importlib.util.find_spec(module) is None]
+
+
+def _ensure_runtime_dependencies() -> None:
+    os.environ["PATH"] = f"{Path(sys.executable).parent}:{os.environ.get('PATH', '')}".strip(":")
+    missing = _missing_runtime_modules()
+    if not missing and _BOOTSTRAP_SENTINEL.exists():
+        return
+    if not RUNTIME_REQUIREMENTS_FILE.exists():
+        raise FileNotFoundError(f"Missing runtime requirements file: {RUNTIME_REQUIREMENTS_FILE}")
+
+    env = os.environ.copy()
+    env.setdefault("PIP_DISABLE_PIP_VERSION_CHECK", "1")
+    env.setdefault("PYTHONUNBUFFERED", "1")
+
+    def _run(cmd: list[str]) -> None:
+        subprocess.check_call(cmd, env=env)
+
+    try:
+        _run([sys.executable, "-m", "pip", "--version"])
+    except subprocess.CalledProcessError:
+        _run([sys.executable, "-m", "ensurepip", "--upgrade"])
+
+    install_cmd = [sys.executable, "-m", "pip", "install", "-r", str(RUNTIME_REQUIREMENTS_FILE)]
+    try:
+        _run(install_cmd)
+    except subprocess.CalledProcessError:
+        _run(install_cmd[:4] + ["--user"] + install_cmd[4:])
+
+    remaining = _missing_runtime_modules()
+    if remaining:
+        raise RuntimeError(f"Missing runtime dependencies after bootstrap: {remaining}")
+    _BOOTSTRAP_SENTINEL.write_text("ok\n")
 
 
 class TrainedModelInferenceWork(LightningWork):
@@ -24,6 +79,7 @@ class TrainedModelInferenceWork(LightningWork):
         )
 
     def run(self) -> None:
+        _ensure_runtime_dependencies()
         import uvicorn
 
         os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
