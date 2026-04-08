@@ -45,6 +45,47 @@ def _resolve_path(base_dir, path_value):
     return os.path.join(base_dir, path_value)
 
 
+def _record_pipeline_issue(pipeline_stats, severity, source, message, max_items=20):
+    """Record pipeline warnings/errors in a bounded structure that can be emailed."""
+    if not isinstance(pipeline_stats, dict):
+        return
+    sev = str(severity or "ERROR").strip().upper()
+    if sev not in {"ERROR", "WARNING"}:
+        sev = "ERROR"
+
+    key = "error_count" if sev == "ERROR" else "warning_count"
+    pipeline_stats[key] = int(pipeline_stats.get(key, 0) or 0) + 1
+
+    issues = pipeline_stats.get("issues")
+    if not isinstance(issues, list):
+        issues = []
+        pipeline_stats["issues"] = issues
+
+    issue = {
+        "time": get_sgt_now().strftime("%H:%M:%S"),
+        "severity": sev,
+        "source": str(source or "pipeline"),
+        "message": str(message or ""),
+    }
+    if len(issues) < int(max_items):
+        issues.append(issue)
+    else:
+        pipeline_stats["issue_overflow_count"] = int(pipeline_stats.get("issue_overflow_count", 0) or 0) + 1
+
+
+def _finalize_pipeline_health(pipeline_stats):
+    if not isinstance(pipeline_stats, dict):
+        return
+    errors = int(pipeline_stats.get("error_count", 0) or 0)
+    warnings = int(pipeline_stats.get("warning_count", 0) or 0)
+    failed = int(pipeline_stats.get("tickers_failed", 0) or 0)
+    if failed > errors:
+        errors = failed
+    pipeline_stats["error_count"] = errors
+    pipeline_stats["warning_count"] = warnings
+    pipeline_stats["run_health"] = "ERROR" if errors > 0 else ("WARNING" if warnings > 0 else "OK")
+
+
 class DailyBacktester:
     def __init__(self, config_path=None):
         self.config_path = _get_config_path(config_path)
@@ -873,7 +914,7 @@ class DailyBacktester:
                 rng = random.Random(seed)
                 rng.shuffle(universe_symbols)
 
-                prompt_limit = int(ai_cfg.get("prompt_candidates_limit", 80) or 80)
+                prompt_limit = int(ai_cfg.get("prompt_candidates_limit", 200) or 200)
                 price_lookback = int(ai_cfg.get("price_lookback_days", 30) or 30)
                 feature_lookback = int(ai_cfg.get("feature_lookback_days", 80) or 80)
                 news_window_days = int(ai_cfg.get("news_window_days", 7) or 7)
@@ -1026,6 +1067,15 @@ class DailyBacktester:
 
         if pipeline_stats is None:
             pipeline_stats = {}
+        if isinstance(pipeline_stats, dict):
+            if ai_enabled and isinstance(ai_llm_status, dict) and not bool(ai_llm_status.get("ok")):
+                _record_pipeline_issue(
+                    pipeline_stats,
+                    "ERROR",
+                    "AI Trading",
+                    ai_llm_status.get("error") or "AI trading decision call failed.",
+                )
+            _finalize_pipeline_health(pipeline_stats)
 
         # Keep Core and AI reporting stats separate to avoid showing AI-trading fields
         # in the Core email.
@@ -1120,7 +1170,12 @@ def run_full_pipeline(limit=None, config_path=None):
         'tickers_failed': 0,
         'models_trained': 0,
         'news_enabled': config.get('news', {}).get('enabled', False),
-        'llm_status': None
+        'llm_status': None,
+        'error_count': 0,
+        'warning_count': 0,
+        'issues': [],
+        'issue_overflow_count': 0,
+        'failed_symbols': [],
     }
 
     # Initialize components
@@ -1228,6 +1283,9 @@ def run_full_pipeline(limit=None, config_path=None):
         except Exception as e:
             stats['tickers_failed'] += 1
             logger.error(f"Failed to process {ticker}: {e}")
+            if len(stats.get("failed_symbols", [])) < 25:
+                stats["failed_symbols"].append(str(ticker))
+            _record_pipeline_issue(stats, "ERROR", f"Ticker {ticker}", str(e))
             continue
 
     if news_ingestor is not None:
@@ -1239,10 +1297,12 @@ def run_full_pipeline(limit=None, config_path=None):
         logger.info("Backtest signals snapshot generated.")
     except Exception as exc:
         logger.error(f"Failed to generate backtest signals snapshot: {exc}")
+        _record_pipeline_issue(stats, "WARNING", "Backtest Signal Snapshot", str(exc))
 
     logger.info("Pipeline completed. Running backtest...")
     backtester = DailyBacktester(config_path)
     email_sent = False
+    _finalize_pipeline_health(stats)
     result = backtester.run_daily_test(
         pipeline_stats=stats,
         backtest_signals=signal_payload
@@ -1327,6 +1387,12 @@ def run_daily_job(config_path=None):
         'tickers_failed': 0,
         'news_fetched': 0,
         'news_enabled': bool(config.get('news', {}).get('enabled', False)),
+        'llm_status': None,
+        'error_count': 0,
+        'warning_count': 0,
+        'issues': [],
+        'issue_overflow_count': 0,
+        'failed_symbols': [],
     }
     
     def log_step(name, status, details=None):
@@ -1337,6 +1403,11 @@ def run_daily_job(config_path=None):
             'details': details
         })
         logger.info(f"STEP: {name} | STATUS: {status} | {details or ''}")
+        status_u = str(status or "").strip().upper()
+        if status_u == "FAILED":
+            _record_pipeline_issue(pipeline_stats, "ERROR", name, details or "step failed")
+        elif status_u == "WARNING":
+            _record_pipeline_issue(pipeline_stats, "WARNING", name, details or "step warning")
 
     # One-time recovery for cloud cache misses: seed only if tables are empty.
     log_step("State Recovery", "Started")
@@ -1476,6 +1547,9 @@ def run_daily_job(config_path=None):
         except Exception as exc:
             pipeline_stats['tickers_failed'] += 1
             logger.warning(f"Failed to ingest {t}: {exc}")
+            if len(pipeline_stats.get("failed_symbols", [])) < 25:
+                pipeline_stats["failed_symbols"].append(str(t))
+            _record_pipeline_issue(pipeline_stats, "ERROR", f"Price Ingestion:{t}", str(exc))
             continue
 
     log_step("Price Ingestion", "Completed", f"Success: {pipeline_stats['tickers_processed']}, Failed: {pipeline_stats['tickers_failed']}")
@@ -1497,8 +1571,21 @@ def run_daily_job(config_path=None):
                 try:
                     news_ingestor.fetch_and_store_news(sym)
                     pipeline_stats['news_fetched'] += 1
-                except Exception:
+                except Exception as exc:
+                    _record_pipeline_issue(pipeline_stats, "WARNING", f"News Ingestion:{sym}", str(exc))
                     continue
+            try:
+                pipeline_stats['llm_status'] = news_ingestor.get_llm_status()
+                llm_status = pipeline_stats.get('llm_status') if isinstance(pipeline_stats, dict) else None
+                if isinstance(llm_status, dict) and int(llm_status.get("errors", 0) or 0) > 0:
+                    _record_pipeline_issue(
+                        pipeline_stats,
+                        "WARNING",
+                        "News Sentiment",
+                        llm_status.get("last_error") or f"errors={llm_status.get('errors')}",
+                    )
+            except Exception as exc:
+                _record_pipeline_issue(pipeline_stats, "WARNING", "News Sentiment", str(exc))
             log_step("News Ingestion", "Completed", f"Fetched for {pipeline_stats['news_fetched']} symbols")
         except Exception as exc:
             log_step("News Ingestion", "Failed", str(exc))
@@ -1508,6 +1595,7 @@ def run_daily_job(config_path=None):
     # Run daily backtest + emails
     log_step("Backtest & Strategy", "Started")
     backtester = DailyBacktester(config_path)
+    _finalize_pipeline_health(pipeline_stats)
     result = backtester.run_daily_test(pipeline_stats=pipeline_stats)
     email_sent = bool(result and result[-1])
     

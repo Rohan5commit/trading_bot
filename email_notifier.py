@@ -32,6 +32,13 @@ def _format_table(headers, rows):
     return "\n".join(lines)
 
 
+def _safe_int(value, default=0):
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
 class EmailNotifier:
     def __init__(self):
         self.smtp_server = os.getenv('SMTP_SERVER', 'smtp.gmail.com')
@@ -63,6 +70,23 @@ class EmailNotifier:
         subject = f"Trading Bot Daily Report - {report_data['date']}"
         if subject_tag:
             subject = f"Trading Bot Daily Report ({subject_tag}) - {report_data['date']}"
+        run_health = None
+        if isinstance(pipeline_stats, dict):
+            raw_health = str(pipeline_stats.get("run_health") or "").strip().upper()
+            if raw_health in {"OK", "WARNING", "ERROR"}:
+                run_health = raw_health
+            else:
+                err_count = _safe_int(pipeline_stats.get("error_count"))
+                warn_count = _safe_int(pipeline_stats.get("warning_count"))
+                failed_count = _safe_int(pipeline_stats.get("tickers_failed"))
+                if err_count > 0 or failed_count > 0:
+                    run_health = "ERROR"
+                elif warn_count > 0:
+                    run_health = "WARNING"
+                else:
+                    run_health = "OK"
+        if run_health in {"WARNING", "ERROR"}:
+            subject = f"{subject} [{run_health}]"
         
         # Calculate combined P&L
         realized = report_data.get('total_realized_pnl', 0)
@@ -147,26 +171,52 @@ class EmailNotifier:
             models_trained = pipeline_stats.get('models_trained')
             llm_status = pipeline_stats.get('llm_status') if isinstance(pipeline_stats, dict) else None
             ai_trading_llm_status = pipeline_stats.get('ai_trading_llm_status') if isinstance(pipeline_stats, dict) else None
+            run_health = str(pipeline_stats.get("run_health") or "").strip().upper() if isinstance(pipeline_stats, dict) else ""
+            error_count = pipeline_stats.get("error_count") if isinstance(pipeline_stats, dict) else None
+            warning_count = pipeline_stats.get("warning_count") if isinstance(pipeline_stats, dict) else None
+            failed_symbols = pipeline_stats.get("failed_symbols") if isinstance(pipeline_stats, dict) else None
+            issues = pipeline_stats.get("issues") if isinstance(pipeline_stats, dict) else None
+            issue_overflow_count = pipeline_stats.get("issue_overflow_count") if isinstance(pipeline_stats, dict) else None
+            if run_health not in {"OK", "WARNING", "ERROR"}:
+                if _safe_int(error_count) > 0 or _safe_int(failed) > 0:
+                    run_health = "ERROR"
+                elif _safe_int(warning_count) > 0:
+                    run_health = "WARNING"
+                else:
+                    run_health = "OK"
             if total is not None:
                 body_lines.append(f"Tickers Total: {total}")
             if processed is not None:
                 body_lines.append(f"Tickers Processed: {processed}")
             if failed is not None:
                 body_lines.append(f"Tickers Failed: {failed}")
+            if isinstance(failed_symbols, list) and failed_symbols:
+                sample = ", ".join([str(s) for s in failed_symbols[:10]])
+                suffix = " ..." if len(failed_symbols) > 10 else ""
+                body_lines.append(f"Failed Symbols (sample): {sample}{suffix}")
             if models_trained is not None:
                 body_lines.append(f"Models Trained: {models_trained}")
             if news_enabled is not None:
                 body_lines.append(f"News/LLM Sentiment: {'ON' if news_enabled else 'OFF'}")
+            if run_health in {"OK", "WARNING", "ERROR"}:
+                body_lines.append(f"Run Health: {run_health}")
+            if error_count is not None:
+                body_lines.append(f"Run Errors: {_safe_int(error_count)}")
+            if warning_count is not None:
+                body_lines.append(f"Run Warnings: {_safe_int(warning_count)}")
             if llm_status is not None:
                 errors = llm_status.get('errors', 0)
                 attempts = llm_status.get('attempts', 0)
                 last_error = llm_status.get('last_error')
+                local_scored = llm_status.get('local_scored')
                 if errors:
                     body_lines.append(f"LLM Status: ERROR (attempts={attempts}, errors={errors})")
                     if last_error:
                         body_lines.append(f"LLM Error: {last_error}")
                 else:
                     body_lines.append(f"LLM Status: OK (attempts={attempts})")
+                if local_scored is not None:
+                    body_lines.append(f"LLM Local Fallback Scored: {_safe_int(local_scored)}")
             # AI-trading diagnostics must appear only in the AI strategy email.
             include_ai_pipeline = str(subject_tag or "").strip().upper() == "AI"
             if include_ai_pipeline and ai_trading_llm_status is not None:
@@ -202,6 +252,23 @@ class EmailNotifier:
                     body_lines.append("AI Entries: BLOCKED (LLM unavailable/error)")
                 if (not ok) and err:
                     body_lines.append(f"AI LLM Error: {err}")
+
+            if isinstance(issues, list) and issues:
+                body_lines.append("")
+                body_lines.append("ERROR SUMMARY")
+                body_lines.append("-" * 40)
+                for issue in issues[:12]:
+                    sev = str(issue.get("severity") or "ERROR").upper()
+                    src = str(issue.get("source") or "pipeline")
+                    msg = str(issue.get("message") or "").strip()
+                    t = str(issue.get("time") or "").strip()
+                    prefix = f"[{t}] " if t else ""
+                    line = f"{prefix}{sev}: {src}"
+                    if msg:
+                        line += f" - {msg}"
+                    body_lines.append(line)
+                if issue_overflow_count:
+                    body_lines.append(f"... plus {_safe_int(issue_overflow_count)} additional issue(s) omitted.")
             
             steps = pipeline_stats.get('steps')
             if steps:
