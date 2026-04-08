@@ -411,22 +411,26 @@ def main() -> None:
             port=service_port,
             session_name=f"{config.studio_session_name}-cleanup-{int(time.time())}",
         )
-        launch = _execute_checked(
+        launch, session_status = _launch_service_session(
             client,
             project.project_id,
             studio_id,
             command=_build_service_command(config),
             session_name=config.studio_session_name,
-            detached=True,
-            max_attempts=1,
-            retry_sleep_seconds=5,
+        )
+        local_health = _wait_for_local_health(
+            client,
+            project.project_id,
+            studio_id,
+            port=service_port,
+            session_name=f"{config.studio_session_name}-local-health-{int(time.time())}",
         )
         session_status = get_session_status(
             client,
             project.project_id,
             studio_id,
             config.studio_session_name,
-        ) or {"state": "launch_requested"}
+        ) or session_status
         report = {
             "project_id": project.project_id,
             "project_name": project.name,
@@ -438,11 +442,11 @@ def main() -> None:
             "bootstrap": _strip_output_fields(json_safe(bootstrap.to_dict() if hasattr(bootstrap, "to_dict") else bootstrap)),
             "launch": _strip_output_fields(json_safe(launch.to_dict() if hasattr(launch, "to_dict") else launch)),
             "cleanup": _strip_output_fields(json_safe(cleanup)),
-            "local_health": None,
+            "local_health": local_health,
             "candidate_urls": candidate_urls,
             "inference_url": candidate_urls[0] if candidate_urls else "",
             "public_health_check_skipped": True,
-            "launch_detached_only": True,
+            "launch_detached_only": False,
         }
         payload = json.dumps(json_safe(report), indent=2)
         print(payload)
