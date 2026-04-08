@@ -124,7 +124,7 @@ jobs:
           ARM_LIVE_TRADING: ${{ secrets.ARM_LIVE_TRADING }}
           LOG_LEVEL: ${{ secrets.LOG_LEVEL }}
           RESET_AI_POSITIONS: ${{ inputs.reset_ai_positions }}
-          TRAINED_MODEL_TIMEOUT_SECONDS: "180"
+          TRAINED_MODEL_TIMEOUT_SECONDS: "1200"
           TRAINED_MODEL_READY_TIMEOUT_SECONDS: "1200"
           TRAINED_MODEL_READY_POLL_SECONDS: "15"
           TRAINED_MODEL_MAX_RETRIES: "0"

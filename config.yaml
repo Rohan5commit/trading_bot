@@ -108,7 +108,7 @@ ai_trading:
   price_lookback_days: 30
   feature_lookback_days: 80
   news_window_days: 7
-  prompt_candidates_limit: 6
+  prompt_candidates_limit: 3
   # Force AI weights to deploy most available cash each run.
   min_total_weight: 0.90
   decision_engine: "trained_model"
@@ -118,8 +118,10 @@ ai_trading:
     inference_url_env: "TRAINED_MODEL_INFERENCE_URL"
     api_key_env: "TRAINED_MODEL_API_KEY"
     # The endpoint is expected to be a remote CPU inference service (for example Lightning AI).
-    timeout_seconds: 180
+    timeout_seconds: 1200
     batch_size: 1
+    max_retries: 0
+    backoff_seconds: 2
     model_name: "quant-trained-trading-model"
 
 
