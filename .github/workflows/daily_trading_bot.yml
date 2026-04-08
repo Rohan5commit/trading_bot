@@ -5,10 +5,22 @@ on:
     # Runs at 00:00 UTC (8:00 AM SGT) Tuesday-Saturday
     - cron: '0 0 * * 2-6'
   workflow_dispatch:
+    inputs:
+      run_in_lightning_studio:
+        description: "Run the full daily job inside Lightning Studio with the trained model served locally"
+        required: false
+        default: false
+        type: boolean
+      reset_ai_positions:
+        description: "Clear only AI positions before the manual run so the trained model must generate fresh trades"
+        required: false
+        default: true
+        type: boolean
 
 jobs:
   run-trading-bot:
     runs-on: ubuntu-latest
+    timeout-minutes: 90
     permissions:
       contents: write # Needed if we want to commit changes (e.g. database updates, logs)
 
@@ -22,6 +34,19 @@ jobs:
       TRAINED_MODEL_MAX_RETRIES: "1"
       TRAINED_MODEL_BACKOFF_SECONDS: "5"
       TRAINED_MODEL_BATCH_SIZE: "1"
+      LIGHTNING_USERNAME: ${{ secrets.LIGHTNING_USERNAME }}
+      LIGHTNING_API_KEY: ${{ secrets.LIGHTNING_API_KEY }}
+      LIGHTNING_USER_ID: ${{ secrets.LIGHTNING_USER_ID }}
+      LIGHTNING_CLOUD_PROJECT_ID: "01kkqt8mzptzp8svph6p4nt915"
+      GITHUB_TOKEN: ${{ github.token }}
+      TRAINED_MODEL_BASE_MODEL: "Qwen/Qwen2.5-7B-Instruct"
+      TRAINED_MODEL_NAME: "quant-trained-trading-model"
+      TRAINED_MODEL_CPU_THREADS: "8"
+      LIGHTNING_INFERENCE_COMPUTE_NAME: "cpu-8"
+      LIGHTNING_INFERENCE_DISK_GB: "80"
+      LIGHTNING_INFERENCE_PORT: "8000"
+      TRAINED_MODEL_ADAPTER_ARCHIVE_URL: ${{ secrets.TRAINED_MODEL_ADAPTER_ARCHIVE_URL }}
+      TRAINED_MODEL_ADAPTER_ARCHIVE_TOKEN: ${{ secrets.TRAINED_MODEL_ADAPTER_ARCHIVE_TOKEN }}
 
     steps:
       - name: Checkout repository
@@ -38,7 +63,13 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      - name: Install Lightning dependencies
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_in_lightning_studio }}
+        run: |
+          python -m pip install "lightning[app]==2.3.2" lightning-cloud==0.5.70
+
       - name: Restore Data and Models Cache
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.run_in_lightning_studio) }}
         uses: actions/cache/restore@v4
         with:
           path: |
@@ -49,7 +80,18 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-trading-bot-
 
+      - name: Launch Lightning inference studio
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_in_lightning_studio }}
+        env:
+          TRAINED_MODEL_API_KEY: ${{ secrets.TRAINED_MODEL_API_KEY }}
+        run: |
+          python launch_lightning_inference_studio.py \
+            --config quant_platform/configs/lightning_inference_studio.yaml \
+            --skip-public-health-check \
+            --status-out lightning-inference-status-local.json
+
       - name: Run Trading Bot
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.run_in_lightning_studio) }}
         env:
           SMTP_SERVER: ${{ secrets.SMTP_SERVER }}
           SMTP_PORT: ${{ secrets.SMTP_PORT }}
@@ -65,6 +107,32 @@ jobs:
         run: |
           python main.py daily_job
 
+      - name: Run Trading Bot in Lightning Studio
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_in_lightning_studio }}
+        env:
+          SMTP_SERVER: ${{ secrets.SMTP_SERVER }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SENDER_EMAIL: ${{ secrets.SENDER_EMAIL }}
+          SENDER_PASSWORD: ${{ secrets.SENDER_PASSWORD }}
+          RECIPIENT_EMAIL: ${{ secrets.RECIPIENT_EMAIL }}
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+          NVIDIA_API_KEY_ID: ${{ secrets.NVIDIA_API_KEY_ID }}
+          TRAINED_MODEL_API_KEY: ${{ secrets.TRAINED_MODEL_API_KEY }}
+          TWELVEDATA_API_KEYS: ${{ secrets.TWELVEDATA_API_KEYS }}
+          ARM_LIVE_TRADING: ${{ secrets.ARM_LIVE_TRADING }}
+          LOG_LEVEL: ${{ secrets.LOG_LEVEL }}
+          RESET_AI_POSITIONS: ${{ inputs.reset_ai_positions }}
+        run: |
+          extra_args=""
+          if [ "${RESET_AI_POSITIONS}" = "true" ]; then
+            extra_args="--reset-ai-positions"
+          fi
+          python run_daily_job_lightning_studio.py \
+            --config quant_platform/configs/lightning_inference_studio.yaml \
+            --result-out results/daily_job_lightning_studio.json \
+            --session-name trading-bot-daily-job-${{ github.run_id }} \
+            ${extra_args}
+
       - name: Upload artifacts (logs/reports)
         if: always()
         uses: actions/upload-artifact@v4
@@ -72,11 +140,13 @@ jobs:
           name: bot-results
           path: |
             results/*.csv
+            results/*.json
             *.log
+            lightning-inference-status-local.json
           retention-days: 7
 
       - name: Save Data and Models Cache
-        if: always()
+        if: ${{ always() && !(github.event_name == 'workflow_dispatch' && inputs.run_in_lightning_studio) }}
         uses: actions/cache/save@v4
         with:
           path: |
