@@ -41,11 +41,11 @@ jobs:
 
       - name: Deploy inference service
         run: |
-          python launch_lightning_inference_studio.py \
-            --config quant_platform/configs/lightning_inference_studio.yaml \
-            --allow-create \
-            --force-restart-instance \
-            --skip-public-health-check \
+          python launch_lightning_inference_app.py \
+            --app-name tb-lightning-infer \
+            --replace-existing \
+            --require-health \
+            --timeout-seconds 2400 \
             --status-out lightning-inference-status.json
 
       - name: Show deployed inference URL

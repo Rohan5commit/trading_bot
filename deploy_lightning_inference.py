@@ -30,6 +30,7 @@ except ModuleNotFoundError:  # noqa: E402
 
 
 ENV_KEYS = (
+    "PATH",
     "TRAINED_MODEL_BASE_MODEL",
     "TRAINED_MODEL_NAME",
     "TRAINED_MODEL_CPU_THREADS",
@@ -45,6 +46,13 @@ ENV_KEYS = (
     "TRAINED_MODEL_LOG_LEVEL",
     "LIGHTNING_CLOUD_PROJECT_ID",
 )
+
+
+def _default_entrypoint() -> Path:
+    bundle_entrypoint = ROOT_DIR / "lightning_inference_bundle" / "lightning_trained_model_app.py"
+    if bundle_entrypoint.exists():
+        return bundle_entrypoint
+    return ROOT_DIR / "lightning_trained_model_app.py"
 
 
 def _patch_lightning_dispatch_compat() -> None:
@@ -94,7 +102,7 @@ def main() -> None:
     project_id = str(os.getenv("LIGHTNING_CLOUD_PROJECT_ID") or os.getenv("LIGHTNING_PROJECT_ID") or "").strip() or None
     client, project = get_client_and_project(project_id=project_id)
 
-    entrypoint = ROOT_DIR / "lightning_trained_model_app.py"
+    entrypoint = _default_entrypoint()
     env_vars = _collect_env()
 
     dispatch(

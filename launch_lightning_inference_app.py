@@ -11,6 +11,9 @@ import time
 from typing import Any
 
 import requests
+from lightning_cloud.openapi import IdStartBody, V1UserRequestedComputeConfig
+from lightning_cloud.openapi.models.appinstances_id_body import AppinstancesIdBody
+from lightning_cloud.openapi.models.v1_lightningapp_instance_spec import V1LightningappInstanceSpec
 
 
 ROOT_DIR = Path(__file__).resolve().parent
@@ -52,6 +55,13 @@ def _resolved_project_id() -> str | None:
         if value:
             return value
     return None
+
+
+def _default_entrypoint() -> Path:
+    bundle_entrypoint = ROOT_DIR / "lightning_inference_bundle" / "lightning_trained_model_app.py"
+    if bundle_entrypoint.exists():
+        return bundle_entrypoint
+    return ROOT_DIR / "lightning_trained_model_app.py"
 
 
 def _app_payload(app: Any) -> dict[str, Any]:
@@ -131,6 +141,42 @@ def _candidate_urls(client, project_id: str, app, logs_text: str) -> list[str]:
     return urls
 
 
+def _start_stopped_app(client, project_id: str, app: Any) -> Any:
+    cloud_space_id = str(getattr(getattr(app, "spec", None), "cloud_space_id", "") or "").strip()
+    if not cloud_space_id:
+        return app
+
+    compute_name = str(os.getenv("LIGHTNING_INFERENCE_COMPUTE_NAME") or "cpu-8").strip() or "cpu-8"
+    disk_size_gb = int(str(os.getenv("LIGHTNING_INFERENCE_DISK_GB") or "80").strip() or "80")
+
+    client.cloud_space_service_start_cloud_space_instance(
+        project_id=project_id,
+        id=cloud_space_id,
+        body=IdStartBody(
+            compute_config=V1UserRequestedComputeConfig(
+                name=compute_name,
+                disk_size=disk_size_gb,
+                spot=False,
+                same_compute_on_resume=False,
+            )
+        ),
+    )
+
+    spec_dict = app.spec.to_dict()
+    spec_dict["desired_state"] = "LIGHTNINGAPP_INSTANCE_STATE_RUNNING"
+    update_body = AppinstancesIdBody(
+        display_name=getattr(app, "display_name", None),
+        name=getattr(app, "name", None),
+        spec=V1LightningappInstanceSpec(**spec_dict),
+    )
+    client.lightningapp_instance_service_update_lightningapp_instance(
+        body=update_body,
+        project_id=project_id,
+        id=str(getattr(app, "id", "")),
+    )
+    return client.lightningapp_instance_service_get_lightningapp_instance(project_id=project_id, id=str(getattr(app, "id", "")))
+
+
 def _wait_for_inference_url(
     client,
     project_id: str,
@@ -144,6 +190,7 @@ def _wait_for_inference_url(
     deadline = time.time() + timeout_seconds
     last_error = "waiting for Lightning app URL"
     last_logs = ""
+    attempted_stopped_recovery = False
     while time.time() < deadline:
         if dispatch_thread is not None and dispatch_state is not None and not dispatch_thread.is_alive():
             exc_text = str(dispatch_state.get("error") or "").strip()
@@ -190,6 +237,14 @@ def _wait_for_inference_url(
             except Exception as exc:  # noqa: BLE001
                 last_error = f"{candidate}: {exc}"
         phase = phase_name(app)
+        if phase == "LIGHTNINGAPP_INSTANCE_STATE_STOPPED" and not attempted_stopped_recovery:
+            attempted_stopped_recovery = True
+            try:
+                app = _start_stopped_app(client, project_id, app)
+                time.sleep(15)
+                continue
+            except Exception as exc:  # noqa: BLE001
+                last_error = f"failed to recover stopped app: {exc}"
         if phase in TERMINAL_PHASES:
             raise RuntimeError(
                 json.dumps(
@@ -218,6 +273,7 @@ def _wait_for_inference_url(
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--app-name", default=DEFAULT_APP_NAME)
+    parser.add_argument("--entrypoint", default="")
     parser.add_argument("--status-out", default="")
     parser.add_argument("--replace-existing", action="store_true")
     parser.add_argument("--timeout-seconds", type=int, default=1800)
@@ -234,7 +290,7 @@ def main() -> None:
         delete_matching_apps(client, project.project_id, args.app_name)
         wait_for_app_removal(client, project.project_id, args.app_name, timeout_seconds=300, poll_seconds=10)
 
-    entrypoint = ROOT_DIR / "lightning_trained_model_app.py"
+    entrypoint = Path(args.entrypoint).expanduser().resolve() if args.entrypoint else _default_entrypoint()
     env_vars = _collect_env()
     dispatch_state: dict[str, Any] = {}
 
