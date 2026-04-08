@@ -28,6 +28,14 @@ ADAPTER_CACHE_DIR = os.getenv("TRAINED_MODEL_CACHE_DIR", "/tmp/trained_model_ser
 SERVICE_API_KEY = os.getenv("TRAINED_MODEL_API_KEY", "").strip()
 
 LABEL_RE = re.compile(r"\b(STRONG_BUY|BUY|NEUTRAL|SELL|STRONG_SELL)\b", re.IGNORECASE)
+CLASS_TOKEN_RE = re.compile(r"\b([ABCDE])\b", re.IGNORECASE)
+CLASS_TOKEN_TO_LABEL = {
+    "A": "STRONG_BUY",
+    "B": "BUY",
+    "C": "NEUTRAL",
+    "D": "SELL",
+    "E": "STRONG_SELL",
+}
 _MODEL = None
 _TOKENIZER = None
 _TORCH = None
@@ -201,9 +209,16 @@ def _parse_plain_label(text: str):
     if not text:
         return None
     match = LABEL_RE.search(str(text))
-    if not match:
+    if match:
+        return {"label": match.group(1).upper(), "confidence": 0.5, "reason": str(text).strip()}
+    class_match = CLASS_TOKEN_RE.search(str(text))
+    if not class_match:
         return None
-    return {"label": match.group(1).upper(), "confidence": 0.5, "reason": str(text).strip()}
+    token = class_match.group(1).upper()
+    label = CLASS_TOKEN_TO_LABEL.get(token)
+    if not label:
+        return None
+    return {"label": label, "confidence": 0.5, "reason": str(text).strip()}
 
 
 def _candidate_prompt(candidate: Dict[str, Any]) -> str:
@@ -224,8 +239,9 @@ def _candidate_prompt(candidate: Dict[str, Any]) -> str:
         f"VOLUME_RATIO: {candidate.get('volume_ratio')}",
         f"NEWS_COUNT_7D: {candidate.get('news_count_7d')}",
         f"NEWS_SENTIMENT_7D: {candidate.get('news_sentiment_7d')}",
-        "QUESTION: Classify the expected 5-day return as exactly one label from STRONG_BUY, BUY, NEUTRAL, SELL, STRONG_SELL.",
-        "Return the label only. No JSON. No explanation.",
+        "QUESTION: Classify the expected 5-day return using exactly one class token:",
+        "A=STRONG_BUY, B=BUY, C=NEUTRAL, D=SELL, E=STRONG_SELL",
+        "Return one token only (A/B/C/D/E). No JSON. No explanation.",
     ]
     return "\n".join(lines)
 
@@ -318,9 +334,15 @@ def _load_runtime():
 def _prediction_from_text(text: str, candidate: Dict[str, Any]) -> Dict[str, Any]:
     parsed = _extract_json(text) or _parse_plain_label(text) or {}
     label = str(parsed.get("label") or "").strip().upper()
+    if label in CLASS_TOKEN_TO_LABEL:
+        label = CLASS_TOKEN_TO_LABEL[label]
     if label not in {"STRONG_BUY", "BUY", "NEUTRAL", "SELL", "STRONG_SELL"}:
         match = LABEL_RE.search(text or "")
-        label = match.group(1).upper() if match else "NEUTRAL"
+        if match:
+            label = match.group(1).upper()
+        else:
+            class_match = CLASS_TOKEN_RE.search(text or "")
+            label = CLASS_TOKEN_TO_LABEL.get(class_match.group(1).upper(), "NEUTRAL") if class_match else "NEUTRAL"
     confidence = {
         "STRONG_BUY": 0.9,
         "BUY": 0.72,
@@ -340,7 +362,7 @@ def _predict_batch(candidates: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     model, tokenizer, torch = _load_runtime()
     system = (
         "You are the trained AI trading decision engine. "
-        "Return only one label from STRONG_BUY, BUY, NEUTRAL, SELL, STRONG_SELL."
+        "Return exactly one token: A, B, C, D, or E."
     )
     prompts = [
         tokenizer.apply_chat_template(
@@ -365,7 +387,7 @@ def _predict_batch(candidates: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     with torch.no_grad():
         generated = model.generate(
             **encoded,
-            max_new_tokens=6,
+            max_new_tokens=1,
             do_sample=False,
             pad_token_id=tokenizer.eos_token_id,
         )
