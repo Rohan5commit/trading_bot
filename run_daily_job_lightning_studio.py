@@ -49,6 +49,17 @@ def _command_payload(result: Any) -> dict[str, Any]:
     return json_safe(result)
 
 
+def _metadata_only(payload: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not isinstance(payload, dict):
+        return None
+    compact = dict(payload)
+    raw_output = compact.pop("output", None)
+    if raw_output is not None:
+        compact["has_output"] = bool(str(raw_output))
+        compact["output_chars"] = len(str(raw_output))
+    return compact
+
+
 def _service_port(config) -> int:
     override = str(os.getenv("LIGHTNING_INFERENCE_PORT") or "").strip()
     if override:
@@ -411,8 +422,9 @@ def main() -> None:
         "project_name": project.name,
         "studio_id": studio_id,
         "session_name": args.session_name,
-        "launch": launch,
-        "session": session_status,
+        # Persist metadata only; full command/session output can contain secrets.
+        "launch": _metadata_only(launch),
+        "session": _metadata_only(session_status),
         "result_path": result_path,
         "result": payload,
     }
