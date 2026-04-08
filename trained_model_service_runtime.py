@@ -10,6 +10,7 @@ import re
 import shutil
 import sys
 import tarfile
+import threading
 from typing import Any, Dict, List
 import zipfile
 
@@ -32,6 +33,8 @@ _TOKENIZER = None
 _TORCH = None
 _ADAPTER_DIR = None
 _LOAD_ERROR = None
+_ADAPTER_LOCK = threading.Lock()
+_LOAD_LOCK = threading.Lock()
 
 
 def _env_flag(name: str, default: bool = False) -> bool:
@@ -160,17 +163,20 @@ def _ensure_adapter_dir() -> Path:
     global _ADAPTER_DIR
     if _ADAPTER_DIR is not None and _is_adapter_dir(_ADAPTER_DIR):
         return _ADAPTER_DIR
-    if ADAPTER_PATH:
-        candidate = Path(ADAPTER_PATH).expanduser().resolve()
-        if _is_adapter_dir(candidate):
-            _ADAPTER_DIR = candidate
+    with _ADAPTER_LOCK:
+        if _ADAPTER_DIR is not None and _is_adapter_dir(_ADAPTER_DIR):
             return _ADAPTER_DIR
-    if not ADAPTER_ARCHIVE_URL:
-        raise RuntimeError(
-            "No trained adapter is available. Set TRAINED_MODEL_ADAPTER_PATH or TRAINED_MODEL_ADAPTER_ARCHIVE_URL."
-        )
-    _ADAPTER_DIR = _download_adapter_archive()
-    return _ADAPTER_DIR
+        if ADAPTER_PATH:
+            candidate = Path(ADAPTER_PATH).expanduser().resolve()
+            if _is_adapter_dir(candidate):
+                _ADAPTER_DIR = candidate
+                return _ADAPTER_DIR
+        if not ADAPTER_ARCHIVE_URL:
+            raise RuntimeError(
+                "No trained adapter is available. Set TRAINED_MODEL_ADAPTER_PATH or TRAINED_MODEL_ADAPTER_ARCHIVE_URL."
+            )
+        _ADAPTER_DIR = _download_adapter_archive()
+        return _ADAPTER_DIR
 
 
 def _extract_json(text: str):
@@ -263,45 +269,50 @@ def _load_runtime():
         return _MODEL, _TOKENIZER, _TORCH
     if _LOAD_ERROR is not None:
         raise RuntimeError(_LOAD_ERROR)
-    try:
-        import torch
-
-        _disable_torchvision_discovery()
-        from peft import PeftModel
-        from transformers import AutoModelForCausalLM, AutoTokenizer
-
-        torch.set_num_threads(CPU_THREADS)
+    with _LOAD_LOCK:
+        if _MODEL is not None and _TOKENIZER is not None and _TORCH is not None:
+            return _MODEL, _TOKENIZER, _TORCH
+        if _LOAD_ERROR is not None:
+            raise RuntimeError(_LOAD_ERROR)
         try:
-            torch.set_num_interop_threads(1)
-        except Exception:
-            pass
-        _patch_peft_lora_config_compat()
-        adapter_dir = _ensure_adapter_dir()
-        tokenizer = AutoTokenizer.from_pretrained(BASE_MODEL, trust_remote_code=True)
-        if tokenizer.pad_token is None:
-            tokenizer.pad_token = tokenizer.eos_token
-        model = AutoModelForCausalLM.from_pretrained(
-            BASE_MODEL,
-            trust_remote_code=True,
-            low_cpu_mem_usage=True,
-            torch_dtype="auto",
-        )
-        model = PeftModel.from_pretrained(model, str(adapter_dir), is_trainable=False)
-        if _env_flag("TRAINED_MODEL_MERGE_ADAPTER", default=True) and hasattr(model, "merge_and_unload"):
-            model = model.merge_and_unload()
-        if _env_flag("TRAINED_MODEL_DYNAMIC_QUANTIZE", default=True):
+            import torch
+
+            _disable_torchvision_discovery()
+            from peft import PeftModel
+            from transformers import AutoModelForCausalLM, AutoTokenizer
+
+            torch.set_num_threads(CPU_THREADS)
             try:
-                model = torch.quantization.quantize_dynamic(model, {torch.nn.Linear}, dtype=torch.qint8)
+                torch.set_num_interop_threads(1)
             except Exception:
                 pass
-        model.eval()
-        _MODEL = model
-        _TOKENIZER = tokenizer
-        _TORCH = torch
-        return _MODEL, _TOKENIZER, _TORCH
-    except Exception as exc:
-        _LOAD_ERROR = str(exc)
-        raise
+            _patch_peft_lora_config_compat()
+            adapter_dir = _ensure_adapter_dir()
+            tokenizer = AutoTokenizer.from_pretrained(BASE_MODEL, trust_remote_code=True)
+            if tokenizer.pad_token is None:
+                tokenizer.pad_token = tokenizer.eos_token
+            model = AutoModelForCausalLM.from_pretrained(
+                BASE_MODEL,
+                trust_remote_code=True,
+                low_cpu_mem_usage=True,
+                torch_dtype="auto",
+            )
+            model = PeftModel.from_pretrained(model, str(adapter_dir), is_trainable=False)
+            if _env_flag("TRAINED_MODEL_MERGE_ADAPTER", default=True) and hasattr(model, "merge_and_unload"):
+                model = model.merge_and_unload()
+            if _env_flag("TRAINED_MODEL_DYNAMIC_QUANTIZE", default=True):
+                try:
+                    model = torch.quantization.quantize_dynamic(model, {torch.nn.Linear}, dtype=torch.qint8)
+                except Exception:
+                    pass
+            model.eval()
+            _MODEL = model
+            _TOKENIZER = tokenizer
+            _TORCH = torch
+            return _MODEL, _TOKENIZER, _TORCH
+        except Exception as exc:
+            _LOAD_ERROR = str(exc)
+            raise
 
 
 def _prediction_from_text(text: str, candidate: Dict[str, Any]) -> Dict[str, Any]:
@@ -391,7 +402,6 @@ app = FastAPI(title=MODEL_NAME)
 def health() -> dict[str, Any]:
     try:
         adapter_dir = _ensure_adapter_dir()
-        _load_runtime()
     except Exception as exc:
         return {
             "ok": False,
@@ -404,7 +414,7 @@ def health() -> dict[str, Any]:
         "model": MODEL_NAME,
         "base_model": BASE_MODEL,
         "adapter_dir": str(adapter_dir),
-        "ready": True,
+        "ready": _MODEL is not None and _TOKENIZER is not None and _TORCH is not None,
     }
 
 
