@@ -46,13 +46,21 @@ class PriceIngestor:
         self.twelvedata_base_url = str(td.get("base_url", "https://api.twelvedata.com")).rstrip("/")
         self.twelvedata_outputsize = int(td.get("outputsize", 450) or 450)
         self.twelvedata_timeout = int(td.get("timeout_seconds", 20) or 20)
-        self.twelvedata_keys = ApiKeyRotator(str(td.get("api_key_env", "TWELVEDATA_API_KEYS")), fallback_env_var="TWELVEDATA_API_KEY")
+        self.twelvedata_keys = ApiKeyRotator(
+            str(td.get("api_key_env", "TWELVEDATA_API_KEYS")),
+            fallback_env_var="TWELVEDATA_API_KEY",
+            static_keys=td.get("api_keys"),
+        )
 
         av = providers.get("alphavantage", {}) if isinstance(providers, dict) else {}
         self.alphavantage_base_url = str(av.get("base_url", "https://www.alphavantage.co")).rstrip("/")
         self.alphavantage_timeout = int(av.get("timeout_seconds", 20) or 20)
         self.alphavantage_outputsize = str(av.get("outputsize", "full") or "full").strip().lower()
-        self.alphavantage_keys = ApiKeyRotator(str(av.get("api_key_env", "ALPHAVANTAGE_API_KEYS")), fallback_env_var="ALPHAVANTAGE_API_KEY")
+        self.alphavantage_keys = ApiKeyRotator(
+            str(av.get("api_key_env", "ALPHAVANTAGE_API_KEYS")),
+            fallback_env_var="ALPHAVANTAGE_API_KEY",
+            static_keys=av.get("api_keys"),
+        )
         
         os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
         self.init_db()

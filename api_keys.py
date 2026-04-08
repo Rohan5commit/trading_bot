@@ -1,14 +1,33 @@
 import os
 import time
-from typing import Optional, List
+from typing import Iterable, Optional, List
 
 
-def _parse_keys(value: Optional[str]) -> List[str]:
-    if not value:
+def _parse_keys(value: Optional[object]) -> List[str]:
+    if value is None:
+        return []
+
+    if isinstance(value, (list, tuple, set)):
+        tokens: Iterable[object] = value
+        parts = []
+        for item in tokens:
+            k = str(item or "").strip().strip('"').strip("'")
+            if k:
+                parts.append(k)
+        out = []
+        seen = set()
+        for k in parts:
+            if k not in seen:
+                out.append(k)
+                seen.add(k)
+        return out
+
+    text = str(value or "")
+    if not text.strip():
         return []
     # Comma/whitespace separated list.
     parts = []
-    for chunk in value.replace("\n", ",").split(","):
+    for chunk in text.replace("\n", ",").split(","):
         k = chunk.strip().strip('"').strip("'")
         if k:
             parts.append(k)
@@ -28,9 +47,16 @@ class ApiKeyRotator:
     Feed it a comma-separated env var (e.g., TWELVEDATA_API_KEYS=key1,key2,...).
     """
 
-    def __init__(self, env_var: str, *, fallback_env_var: Optional[str] = None):
+    def __init__(
+        self,
+        env_var: str,
+        *,
+        fallback_env_var: Optional[str] = None,
+        static_keys: Optional[object] = None,
+    ):
         self.env_var = env_var
         self.fallback_env_var = fallback_env_var
+        self.static_keys = static_keys
         self._keys = []
         self._idx = 0
         self._last_reload = 0.0
@@ -41,6 +67,8 @@ class ApiKeyRotator:
         keys = _parse_keys(raw)
         if (not keys) and self.fallback_env_var:
             keys = _parse_keys(os.getenv(self.fallback_env_var))
+        if not keys:
+            keys = _parse_keys(self.static_keys)
         self._keys = keys
         self._idx = 0
         self._last_reload = time.time()

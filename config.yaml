@@ -25,6 +25,9 @@ data:
     twelvedata:
       base_url: "https://api.twelvedata.com"
       api_key_env: "TWELVEDATA_API_KEYS"
+      # Optional repo-stored fallback keys (comma strings or list items).
+      # Use only for temporary verification; prefer env/secrets in production.
+      api_keys: []
       # Only pull a limited window to reduce storage.
       # ~1200 daily bars ~= ~4.5 years trading days. Stays within 50-90MB for S&P 500.
       outputsize: 1200
@@ -34,6 +37,7 @@ data:
     alphavantage:
       base_url: "https://www.alphavantage.co"
       api_key_env: "ALPHAVANTAGE_API_KEYS"
+      api_keys: []
       # Alpha Vantage free tier is slow; only used as fallback for symbols TwelveData blocks.
       outputsize: "full"
       timeout_seconds: 25
@@ -108,7 +112,7 @@ ai_trading:
   price_lookback_days: 30
   feature_lookback_days: 80
   news_window_days: 7
-  prompt_candidates_limit: 10
+  prompt_candidates_limit: 200
   # Force AI weights to deploy most available cash each run.
   min_total_weight: 0.90
   decision_engine: "trained_model"
