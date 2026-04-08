@@ -7,9 +7,9 @@ import subprocess
 import sys
 
 try:
-    from lightning.app import CloudCompute, LightningApp, LightningFlow, LightningWork
+    from lightning.app import BuildConfig, CloudCompute, LightningApp, LightningFlow, LightningWork
 except ModuleNotFoundError:
-    from lightning_app import CloudCompute, LightningApp, LightningFlow, LightningWork
+    from lightning_app import BuildConfig, CloudCompute, LightningApp, LightningFlow, LightningWork
 
 
 DEFAULT_COMPUTE_NAME = os.getenv("LIGHTNING_INFERENCE_COMPUTE_NAME", "cpu-8")
@@ -70,21 +70,24 @@ def _ensure_runtime_dependencies() -> None:
 
 class TrainedModelInferenceWork(LightningWork):
     def __init__(self) -> None:
+        build_config = BuildConfig(requirements=[str(RUNTIME_REQUIREMENTS_FILE)])
         cloud_compute = CloudCompute(name=DEFAULT_COMPUTE_NAME, disk_size=DEFAULT_DISK_SIZE_GB)
         super().__init__(
             parallel=True,
             port=DEFAULT_PORT,
             raise_exception=False,
+            cloud_build_config=build_config,
             cloud_compute=cloud_compute,
         )
 
     def run(self) -> None:
         _ensure_runtime_dependencies()
         import uvicorn
+        from trained_model_service_runtime import app as service_app
 
         os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
         uvicorn.run(
-            "trained_model_service_runtime:app",
+            service_app,
             host="0.0.0.0",
             port=self.port,
             log_level=os.getenv("TRAINED_MODEL_LOG_LEVEL", "info").lower(),
@@ -95,17 +98,9 @@ class RootFlow(LightningFlow):
     def __init__(self) -> None:
         super().__init__()
         self.inference = TrainedModelInferenceWork()
-        self._last_reported_url = ""
 
     def run(self) -> None:
         self.inference.run()
-        inference_url = str(getattr(self.inference, "url", "") or "").strip()
-        if inference_url and inference_url != self._last_reported_url:
-            print(f"LIGHTNING_INFERENCE_URL={inference_url}", flush=True)
-            self._last_reported_url = inference_url
-
-    def configure_layout(self):
-        return [{"name": "trained-model-inference", "content": self.inference.url}]
 
 
 app = LightningApp(RootFlow())
