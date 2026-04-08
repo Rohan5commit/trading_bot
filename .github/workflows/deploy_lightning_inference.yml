@@ -11,7 +11,7 @@ jobs:
       LIGHTNING_USERNAME: ${{ secrets.LIGHTNING_USERNAME }}
       LIGHTNING_API_KEY: ${{ secrets.LIGHTNING_API_KEY }}
       LIGHTNING_USER_ID: ${{ secrets.LIGHTNING_USER_ID }}
-      LIGHTNING_CLOUD_PROJECT_ID: "01kjsr1b8s8zkck9x8t7hdsvgx"
+      LIGHTNING_CLOUD_PROJECT_ID: "01kkqt8mzptzp8svph6p4nt915"
       GITHUB_TOKEN: ${{ github.token }}
       TRAINED_MODEL_BASE_MODEL: "Qwen/Qwen2.5-7B-Instruct"
       TRAINED_MODEL_NAME: "quant-trained-trading-model"
