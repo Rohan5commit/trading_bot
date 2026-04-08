@@ -99,10 +99,18 @@ class TrainedModelTradeClient:
         headers = self._request_headers()
         data = None
         last_exc = None
+        prediction_url = self._prediction_url()
         for attempt in range(self.max_retries + 1):
+            attempt_started = time.time()
+            logger.info(
+                "Trained model batch request: size=%s attempt=%s timeout=%ss",
+                len(candidates),
+                attempt + 1,
+                self.timeout_seconds,
+            )
             try:
                 response = requests.post(
-                    self._prediction_url(),
+                    prediction_url,
                     json=payload,
                     headers=headers,
                     timeout=self.timeout_seconds,
@@ -115,6 +123,12 @@ class TrainedModelTradeClient:
                     )
                 response.raise_for_status()
                 data = response.json()
+                logger.info(
+                    "Trained model batch response: size=%s status=%s elapsed=%.2fs",
+                    len(candidates),
+                    response.status_code,
+                    time.time() - attempt_started,
+                )
                 break
             except (requests.Timeout, requests.ConnectionError, requests.HTTPError) as exc:
                 last_exc = exc
