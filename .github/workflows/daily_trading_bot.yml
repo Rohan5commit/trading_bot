@@ -129,7 +129,7 @@ jobs:
           TRAINED_MODEL_WARMUP_TIMEOUT_SECONDS: "1800"
           TRAINED_MODEL_CPU_THREADS: "4"
           TRAINED_MODEL_CLASS_TOKEN_INFERENCE: "1"
-          AI_PROMPT_CANDIDATES_LIMIT: "120"
+          AI_PROMPT_CANDIDATES_LIMIT: "24"
         run: |
           extra_args=""
           if [ "${RESET_AI_POSITIONS}" = "true" ]; then
