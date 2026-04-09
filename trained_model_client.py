@@ -266,12 +266,24 @@ class TrainedModelTradeClient:
             confidence = 0.9 if label.startswith("STRONG_") else (0.65 if label != "NEUTRAL" else 0.5)
         confidence = max(0.0, min(1.0, confidence))
         reason = str(parsed.get("reason") or parsed.get("notes") or f"Model classified {label}.").strip()
+        class_probabilities = parsed.get("class_probabilities")
+        if not isinstance(class_probabilities, dict):
+            class_probabilities = {}
+        else:
+            cleaned = {}
+            for key, value in class_probabilities.items():
+                try:
+                    cleaned[str(key).strip().upper()] = float(value)
+                except (TypeError, ValueError):
+                    continue
+            class_probabilities = cleaned
         return {
             "label": label,
             "score": LABEL_TO_SCORE[label],
             "confidence": confidence,
             "reason": reason,
             "raw_text": raw_text,
+            "class_probabilities": class_probabilities,
         }
 
     @staticmethod

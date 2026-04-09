@@ -7,6 +7,14 @@ from trained_model_client import TrainedModelTradeClient
 logger = logging.getLogger(__name__)
 
 _CJK_RE = re.compile(r"[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]")
+_LABEL_TO_SCORE = {
+    "STRONG_BUY": 2.0,
+    "BUY": 1.0,
+    "NEUTRAL": 0.0,
+    "SELL": -1.0,
+    "STRONG_SELL": -2.0,
+}
+_DIRECTIONAL_LABELS = ("STRONG_BUY", "BUY", "SELL", "STRONG_SELL")
 
 
 def _enforce_english_reason(reason: str, side: str) -> str:
@@ -41,6 +49,52 @@ def _normalize_candidates(candidates, limit=80):
         if len(rows) >= lim:
             break
     return rows
+
+
+def _neutral_breakout_score(prediction: dict, ai_cfg: dict) -> dict | None:
+    if not bool((ai_cfg or {}).get("neutral_breakout_enabled", True)):
+        return None
+    probs = prediction.get("class_probabilities")
+    if not isinstance(probs, dict):
+        return None
+
+    normalized = {}
+    for label, value in probs.items():
+        key = str(label or "").strip().upper()
+        if key not in _LABEL_TO_SCORE:
+            continue
+        try:
+            normalized[key] = float(value)
+        except (TypeError, ValueError):
+            continue
+    if not normalized:
+        return None
+
+    neutral_prob = max(0.0, float(normalized.get("NEUTRAL", 0.0) or 0.0))
+    directional = [(label, max(0.0, float(normalized.get(label, 0.0) or 0.0))) for label in _DIRECTIONAL_LABELS]
+    directional = [item for item in directional if item[1] > 0.0]
+    if not directional:
+        return None
+    best_label, best_prob = max(directional, key=lambda item: item[1])
+
+    min_prob = float((ai_cfg or {}).get("neutral_breakout_min_prob", 0.22) or 0.22)
+    max_gap = float((ai_cfg or {}).get("neutral_breakout_max_gap", 0.10) or 0.10)
+    if best_prob < min_prob:
+        return None
+    if (neutral_prob - best_prob) > max_gap:
+        return None
+
+    score = float(_LABEL_TO_SCORE.get(best_label, 0.0))
+    if score == 0.0:
+        return None
+    confidence = min(0.99, max(float(prediction.get("confidence", 0.0) or 0.0), best_prob))
+    return {
+        "label": best_label,
+        "score": score,
+        "confidence": confidence,
+        "neutral_prob": neutral_prob,
+        "directional_prob": best_prob,
+    }
 
 
 def _pick_predictions(predictions, max_positions=10, allow_shorts=True, max_shorts=5):
@@ -175,6 +229,7 @@ def propose_trades_with_llm(config, candidates, max_positions=10, allow_shorts=T
     predictions = []
     predictions_seen = 0
     neutral_predictions = 0
+    neutral_breakouts = 0
     failures = []
     batch_predictions = client.predict_candidates(prompt_candidates)
     for candidate, prediction in zip(prompt_candidates, batch_predictions):
@@ -189,23 +244,37 @@ def propose_trades_with_llm(config, candidates, max_positions=10, allow_shorts=T
 
         predictions_seen += 1
         score = float(prediction.get("score", 0.0) or 0.0)
+        confidence = max(0.0, min(1.0, float(prediction.get("confidence", 0.0) or 0.0)))
+        reason = prediction.get("reason")
+        breakout_applied = False
         if score == 0.0:
-            neutral_predictions += 1
-            continue
+            breakout = _neutral_breakout_score(prediction, ai_cfg)
+            if breakout is None:
+                neutral_predictions += 1
+                continue
+            score = float(breakout["score"])
+            confidence = float(breakout["confidence"])
+            breakout_applied = True
+            neutral_breakouts += 1
 
         side = "LONG" if score > 0 else "SHORT"
         if side == "SHORT" and (not bool(allow_shorts) or int(max_shorts or 0) <= 0):
             continue
 
-        strength = max(0.01, abs(score) * max(float(prediction.get("confidence", 0.0) or 0.0), 0.05))
+        strength = max(0.01, abs(score) * max(confidence, 0.05))
+        if breakout_applied:
+            reason = (
+                f"{_enforce_english_reason(reason, side)} "
+                "(neutral tie-break from trained-model class probabilities)"
+            )
         predictions.append(
             {
                 "symbol": candidate["symbol"],
                 "side": side,
                 "score": score,
-                "confidence": max(0.0, min(1.0, float(prediction.get("confidence", 0.0) or 0.0))),
+                "confidence": confidence,
                 "strength": strength,
-                "reason": _enforce_english_reason(prediction.get("reason"), side),
+                "reason": _enforce_english_reason(reason, side),
                 "label": prediction.get("label"),
             }
         )
@@ -215,6 +284,7 @@ def propose_trades_with_llm(config, candidates, max_positions=10, allow_shorts=T
     status["candidates_scored"] = len(predictions)
     status["predictions_seen"] = predictions_seen
     status["neutral_predictions"] = neutral_predictions
+    status["neutral_breakouts"] = neutral_breakouts
 
     if not predictions:
         if predictions_seen > 0 and neutral_predictions == predictions_seen:

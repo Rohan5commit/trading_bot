@@ -123,6 +123,11 @@ ai_trading:
   prompt_candidates_limit: 1000
   # Keep idle cash low without hard-clipping exact cash usage.
   min_total_weight: 0.96
+  # When the model labels a symbol as neutral, allow a directional tie-break
+  # if class probabilities still show a close directional edge.
+  neutral_breakout_enabled: true
+  neutral_breakout_min_prob: 0.22
+  neutral_breakout_max_gap: 0.10
   decision_engine: "trained_model"
   trained_model:
     backend: "http"

@@ -91,6 +91,7 @@ def _build_daily_command(config, *, service_port: int, reset_ai_positions: bool,
         "TRAINED_MODEL_MAX_RETRIES",
         "TRAINED_MODEL_BACKOFF_SECONDS",
         "TRAINED_MODEL_BATCH_SIZE",
+        "TRAINED_MODEL_CLASS_TOKEN_INFERENCE",
         "TRAINED_MODEL_WARMUP_TIMEOUT_SECONDS",
     ]
     for key in passthrough_keys:

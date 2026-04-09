@@ -36,6 +36,14 @@ CLASS_TOKEN_TO_LABEL = {
     "D": "SELL",
     "E": "STRONG_SELL",
 }
+LABEL_TO_CLASS_TOKEN = {
+    "STRONG_BUY": "A",
+    "BUY": "B",
+    "NEUTRAL": "C",
+    "SELL": "D",
+    "STRONG_SELL": "E",
+}
+LABEL_ORDER = ["STRONG_BUY", "BUY", "NEUTRAL", "SELL", "STRONG_SELL"]
 _MODEL = None
 _TOKENIZER = None
 _TORCH = None
@@ -359,8 +367,75 @@ def _prediction_from_text(text: str, candidate: Dict[str, Any]) -> Dict[str, Any
     }
 
 
+def _class_token_ids(tokenizer) -> Dict[str, List[int]]:
+    id_map: Dict[str, List[int]] = {}
+    for label, token in LABEL_TO_CLASS_TOKEN.items():
+        variants = [token, f" {token}", f"\n{token}"]
+        ids: List[int] = []
+        for variant in variants:
+            token_ids = tokenizer.encode(variant, add_special_tokens=False)
+            if len(token_ids) == 1:
+                ids.append(int(token_ids[0]))
+        uniq_ids = sorted(set(ids))
+        if uniq_ids:
+            id_map[label] = uniq_ids
+    return id_map
+
+
+def _predict_batch_from_class_logits(candidates: List[Dict[str, Any]], model, tokenizer, torch) -> List[Dict[str, Any]] | None:
+    if not _env_flag("TRAINED_MODEL_CLASS_TOKEN_INFERENCE", default=True):
+        return None
+
+    token_id_map = _class_token_ids(tokenizer)
+    if not all(label in token_id_map for label in LABEL_ORDER):
+        return None
+
+    prompts = [_candidate_prompt(candidate) for candidate in candidates]
+    tokenizer.padding_side = "left"
+    encoded = tokenizer(
+        prompts,
+        return_tensors="pt",
+        padding=True,
+        truncation=True,
+        max_length=256,
+    )
+    input_lens = encoded["attention_mask"].sum(dim=1).tolist()
+    with torch.no_grad():
+        outputs = model(**encoded)
+    logits = outputs.logits
+
+    predictions: List[Dict[str, Any]] = []
+    for index, candidate in enumerate(candidates):
+        prompt_len = max(1, int(input_lens[index]))
+        next_token_logits = logits[index, prompt_len - 1, :]
+        label_logits = []
+        for label in LABEL_ORDER:
+            ids = token_id_map[label]
+            class_logit = torch.max(next_token_logits[ids]).item()
+            label_logits.append(float(class_logit))
+
+        probs_tensor = torch.softmax(torch.tensor(label_logits, dtype=torch.float32), dim=0)
+        probs = [float(v) for v in probs_tensor.tolist()]
+        best_idx = max(range(len(LABEL_ORDER)), key=lambda i: probs[i])
+        chosen_label = LABEL_ORDER[best_idx]
+        predictions.append(
+            {
+                "label": chosen_label,
+                "confidence": probs[best_idx],
+                "reason": _reason_from_candidate(chosen_label, candidate),
+                "symbol": candidate.get("symbol"),
+                "class_probabilities": {label: probs[i] for i, label in enumerate(LABEL_ORDER)},
+            }
+        )
+    return predictions
+
+
 def _predict_batch(candidates: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     model, tokenizer, torch = _load_runtime()
+    class_logits_predictions = _predict_batch_from_class_logits(candidates, model, tokenizer, torch)
+    if class_logits_predictions is not None:
+        return class_logits_predictions
+
     prompts = [_candidate_prompt(candidate) for candidate in candidates]
     tokenizer.padding_side = "left"
     encoded = tokenizer(
