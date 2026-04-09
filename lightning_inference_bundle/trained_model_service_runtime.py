@@ -225,25 +225,27 @@ def _parse_plain_label(text: str):
 def _candidate_prompt(candidate: Dict[str, Any]) -> str:
     symbol = str(candidate.get("symbol") or "UNKNOWN").strip().upper()
     as_of_date = candidate.get("as_of_date") or candidate.get("last_date") or "UNKNOWN"
-    lines = [
-        f"TICKER: {symbol}",
-        f"DATE: {as_of_date}",
-        f"LAST_CLOSE: {candidate.get('last_close')}",
-        f"CLOSES_TAIL: {candidate.get('closes_tail')}",
-        f"RETURN_1D: {candidate.get('return_1d')}",
-        f"RETURN_5D: {candidate.get('return_5d')}",
-        f"RETURN_10D: {candidate.get('return_10d')}",
-        f"VOLATILITY_20D: {candidate.get('volatility_20d')}",
-        f"DIST_MA_20: {candidate.get('dist_ma_20')}",
-        f"DIST_MA_50: {candidate.get('dist_ma_50')}",
-        f"RSI_14: {candidate.get('rsi_14')}",
-        f"VOLUME_RATIO: {candidate.get('volume_ratio')}",
-        f"NEWS_COUNT_7D: {candidate.get('news_count_7d')}",
-        f"NEWS_SENTIMENT_7D: {candidate.get('news_sentiment_7d')}",
-        "QUESTION: Classify the expected 5-day return as exactly one label from STRONG_BUY, BUY, NEUTRAL, SELL, STRONG_SELL.",
-        "Return the label only. No JSON. No explanation.",
-    ]
-    return "\n".join(lines)
+    def _fmt(value: Any, digits: int = 4) -> str:
+        try:
+            return f"{float(value):.{digits}f}"
+        except (TypeError, ValueError):
+            return "na"
+
+    return (
+        "A=STRONG_BUY B=BUY C=NEUTRAL D=SELL E=STRONG_SELL. "
+        f"T={symbol} D={as_of_date} "
+        f"R1={_fmt(candidate.get('return_1d'))} "
+        f"R5={_fmt(candidate.get('return_5d'))} "
+        f"R10={_fmt(candidate.get('return_10d'))} "
+        f"V20={_fmt(candidate.get('volatility_20d'))} "
+        f"M20={_fmt(candidate.get('dist_ma_20'))} "
+        f"M50={_fmt(candidate.get('dist_ma_50'))} "
+        f"RSI={_fmt(candidate.get('rsi_14'), 2)} "
+        f"VR={_fmt(candidate.get('volume_ratio'), 2)} "
+        f"NC={int(candidate.get('news_count_7d') or 0)} "
+        f"NS={_fmt(candidate.get('news_sentiment_7d'), 3)} "
+        "Class:"
+    )
 
 
 def _reason_from_candidate(label: str, candidate: Dict[str, Any]) -> str:
@@ -381,28 +383,14 @@ def _predict_batch_from_class_logits(candidates: List[Dict[str, Any]], model, to
     if not all(label in token_id_map for label in LABEL_ORDER):
         return None
 
-    system = (
-        "You are the trained AI trading decision engine. "
-        "Return only one label from STRONG_BUY, BUY, NEUTRAL, SELL, STRONG_SELL."
-    )
-    prompts = [
-        tokenizer.apply_chat_template(
-            [
-                {"role": "system", "content": system},
-                {"role": "user", "content": _candidate_prompt(candidate)},
-            ],
-            tokenize=False,
-            add_generation_prompt=True,
-        )
-        for candidate in candidates
-    ]
+    prompts = [_candidate_prompt(candidate) for candidate in candidates]
     tokenizer.padding_side = "left"
     encoded = tokenizer(
         prompts,
         return_tensors="pt",
         padding=True,
         truncation=True,
-        max_length=1024,
+        max_length=256,
     )
     input_lens = encoded["attention_mask"].sum(dim=1).tolist()
     with torch.no_grad():
@@ -441,34 +429,20 @@ def _predict_batch(candidates: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     if class_logits_predictions is not None:
         return class_logits_predictions
 
-    system = (
-        "You are the trained AI trading decision engine. "
-        "Return only one label from STRONG_BUY, BUY, NEUTRAL, SELL, STRONG_SELL."
-    )
-    prompts = [
-        tokenizer.apply_chat_template(
-            [
-                {"role": "system", "content": system},
-                {"role": "user", "content": _candidate_prompt(candidate)},
-            ],
-            tokenize=False,
-            add_generation_prompt=True,
-        )
-        for candidate in candidates
-    ]
+    prompts = [_candidate_prompt(candidate) for candidate in candidates]
     tokenizer.padding_side = "left"
     encoded = tokenizer(
         prompts,
         return_tensors="pt",
         padding=True,
         truncation=True,
-        max_length=1024,
+        max_length=256,
     )
     input_lens = encoded["attention_mask"].sum(dim=1).tolist()
     with torch.no_grad():
         generated = model.generate(
             **encoded,
-            max_new_tokens=6,
+            max_new_tokens=1,
             do_sample=False,
             pad_token_id=tokenizer.eos_token_id,
         )
