@@ -922,7 +922,16 @@ class DailyBacktester:
                 rng = random.Random(seed)
                 rng.shuffle(universe_symbols)
 
-                prompt_limit = int(ai_cfg.get("prompt_candidates_limit", 200) or 200)
+                prompt_limit_cfg = int(ai_cfg.get("prompt_candidates_limit", 200) or 200)
+                prompt_limit_env_raw = str(os.getenv("AI_PROMPT_CANDIDATES_LIMIT") or "").strip()
+                if prompt_limit_env_raw:
+                    try:
+                        prompt_limit = int(float(prompt_limit_env_raw))
+                    except Exception:
+                        prompt_limit = prompt_limit_cfg
+                else:
+                    prompt_limit = prompt_limit_cfg
+                prompt_limit = max(1, prompt_limit)
                 price_lookback = int(ai_cfg.get("price_lookback_days", 30) or 30)
                 feature_lookback = int(ai_cfg.get("feature_lookback_days", 80) or 80)
                 news_window_days = int(ai_cfg.get("news_window_days", 7) or 7)
