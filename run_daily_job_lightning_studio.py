@@ -372,7 +372,7 @@ def main() -> None:
     parser.add_argument("--config", default="quant_platform/configs/lightning_inference_studio.yaml")
     parser.add_argument("--result-out", default="results/daily_job_lightning_studio.json")
     parser.add_argument("--session-name", default="trading-bot-daily-job")
-    parser.add_argument("--timeout-seconds", type=int, default=5400)
+    parser.add_argument("--timeout-seconds", type=int, default=10800)
     parser.add_argument("--reset-ai-positions", action="store_true")
     parser.add_argument("--keep-email-markers", action="store_true")
     args = parser.parse_args()

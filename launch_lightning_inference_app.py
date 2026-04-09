@@ -146,7 +146,7 @@ def _start_stopped_app(client, project_id: str, app: Any) -> Any:
     if not cloud_space_id:
         return app
 
-    compute_name = str(os.getenv("LIGHTNING_INFERENCE_COMPUTE_NAME") or "cpu-8").strip() or "cpu-8"
+    compute_name = str(os.getenv("LIGHTNING_INFERENCE_COMPUTE_NAME") or "cpu-4").strip() or "cpu-4"
     disk_size_gb = int(str(os.getenv("LIGHTNING_INFERENCE_DISK_GB") or "80").strip() or "80")
 
     client.cloud_space_service_start_cloud_space_instance(

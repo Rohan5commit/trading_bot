@@ -11,7 +11,7 @@ except ModuleNotFoundError:
 
 ROOT_DIR = Path(__file__).resolve().parent
 REQUIREMENTS_FILE = ROOT_DIR / "requirements-lightning-inference.txt"
-DEFAULT_COMPUTE_NAME = os.getenv("LIGHTNING_INFERENCE_COMPUTE_NAME", "cpu-medium")
+DEFAULT_COMPUTE_NAME = os.getenv("LIGHTNING_INFERENCE_COMPUTE_NAME", "cpu-4")
 DEFAULT_DISK_SIZE_GB = int(os.getenv("LIGHTNING_INFERENCE_DISK_GB", "80") or 80)
 DEFAULT_PORT = int(os.getenv("LIGHTNING_INFERENCE_PORT", "8000") or 8000)
 

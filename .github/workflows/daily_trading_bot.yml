@@ -42,7 +42,7 @@ jobs:
       TRAINED_MODEL_BASE_MODEL: "Qwen/Qwen2.5-7B-Instruct"
       TRAINED_MODEL_NAME: "quant-trained-trading-model"
       TRAINED_MODEL_CPU_THREADS: "4"
-      LIGHTNING_INFERENCE_COMPUTE_NAME: "cpu-8"
+      LIGHTNING_INFERENCE_COMPUTE_NAME: "cpu-4"
       LIGHTNING_INFERENCE_DISK_GB: "40"
       LIGHTNING_INFERENCE_PORT: "8000"
       TRAINED_MODEL_ADAPTER_ARCHIVE_URL: ${{ secrets.TRAINED_MODEL_ADAPTER_ARCHIVE_URL }}
@@ -84,7 +84,7 @@ jobs:
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_in_lightning_studio }}
         env:
           TRAINED_MODEL_API_KEY: ${{ secrets.TRAINED_MODEL_API_KEY }}
-          TRAINED_MODEL_CPU_THREADS: "8"
+          TRAINED_MODEL_CPU_THREADS: "4"
         run: |
           python launch_lightning_inference_studio.py \
             --config quant_platform/configs/lightning_inference_studio.yaml \
@@ -127,7 +127,7 @@ jobs:
           TRAINED_MODEL_MAX_RETRIES: "0"
           TRAINED_MODEL_BATCH_SIZE: "8"
           TRAINED_MODEL_WARMUP_TIMEOUT_SECONDS: "1800"
-          TRAINED_MODEL_CPU_THREADS: "8"
+          TRAINED_MODEL_CPU_THREADS: "4"
           AI_PROMPT_CANDIDATES_LIMIT: "120"
         run: |
           extra_args=""
@@ -138,6 +138,7 @@ jobs:
             --config quant_platform/configs/lightning_inference_studio.yaml \
             --result-out results/daily_job_lightning_studio.json \
             --session-name trading-bot-daily-job-${{ github.run_id }} \
+            --timeout-seconds 10800 \
             ${extra_args}
 
       - name: Upload artifacts (logs/reports)
