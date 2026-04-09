@@ -20,7 +20,7 @@ on:
 jobs:
   run-trading-bot:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 180
     permissions:
       contents: write # Needed if we want to commit changes (e.g. database updates, logs)
 
@@ -42,7 +42,7 @@ jobs:
       TRAINED_MODEL_BASE_MODEL: "Qwen/Qwen2.5-7B-Instruct"
       TRAINED_MODEL_NAME: "quant-trained-trading-model"
       TRAINED_MODEL_CPU_THREADS: "4"
-      LIGHTNING_INFERENCE_COMPUTE_NAME: "cpu-4"
+      LIGHTNING_INFERENCE_COMPUTE_NAME: "cpu-8"
       LIGHTNING_INFERENCE_DISK_GB: "40"
       LIGHTNING_INFERENCE_PORT: "8000"
       TRAINED_MODEL_ADAPTER_ARCHIVE_URL: ${{ secrets.TRAINED_MODEL_ADAPTER_ARCHIVE_URL }}
