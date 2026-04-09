@@ -775,6 +775,14 @@ class DailyBacktester:
 
         if ai_enabled:
             ai_initial_capital = float(ai_cfg.get("initial_capital", 100000))
+            # Capture pre-close capital for reporting, then close TP positions before
+            # deciding new AI entries so freed slots/cash are usable in the same run.
+            ai_summary_pre_close = self.ai_tracker.get_portfolio_summary()
+            ai_realized_pre_close = float(ai_summary_pre_close.get("total_realized_pnl_dollars", 0.0))
+            ai_capital_pre_close = ai_initial_capital + ai_realized_pre_close
+
+            ai_closed = self.ai_tracker.check_and_close_positions(check_date=test_date.strftime('%Y-%m-%d'))
+
             ai_summary0 = self.ai_tracker.get_portfolio_summary()
             ai_realized_total_dollars0 = float(ai_summary0.get("total_realized_pnl_dollars", 0.0))
             ai_current_capital0 = ai_initial_capital + ai_realized_total_dollars0
@@ -1016,13 +1024,12 @@ class DailyBacktester:
                         ai_remaining_capital = max(0.0, ai_remaining_capital - allocation_dollars)
                 conn_ai.close()
 
-            ai_closed = self.ai_tracker.check_and_close_positions(check_date=test_date.strftime('%Y-%m-%d'))
             ai_summary = self.ai_tracker.get_portfolio_summary()
             ai_unrealized = self.ai_tracker.get_unrealized_pnl()
             ai_realized_total_dollars = float(ai_summary.get("total_realized_pnl_dollars", 0.0))
             ai_unreal_total_dollars = float(ai_summary.get("total_unrealized_pnl_dollars", 0.0))
             ai_realized_today_dollars = sum([p.get('realized_pnl_dollars', 0.0) for p in ai_closed])
-            ai_realized_today = (ai_realized_today_dollars / ai_current_capital0) if ai_current_capital0 else 0.0
+            ai_realized_today = (ai_realized_today_dollars / ai_capital_pre_close) if ai_capital_pre_close else 0.0
 
             ai_current_capital = ai_initial_capital + ai_realized_total_dollars
             ai_open_now = self.ai_tracker.get_open_positions()
