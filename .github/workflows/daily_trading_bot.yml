@@ -128,7 +128,7 @@ jobs:
           TRAINED_MODEL_BATCH_SIZE: "1"
           TRAINED_MODEL_WARMUP_TIMEOUT_SECONDS: "1800"
           TRAINED_MODEL_CPU_THREADS: "4"
-          AI_PROMPT_CANDIDATES_LIMIT: "24"
+          AI_PROMPT_CANDIDATES_LIMIT: "8"
         run: |
           extra_args=""
           if [ "${RESET_AI_POSITIONS}" = "true" ]; then
