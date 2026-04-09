@@ -104,7 +104,7 @@ jobs:
           TWELVEDATA_API_KEYS: ${{ secrets.TWELVEDATA_API_KEYS }}
           ARM_LIVE_TRADING: ${{ secrets.ARM_LIVE_TRADING }}
           LOG_LEVEL: ${{ secrets.LOG_LEVEL }}
-          AI_PROMPT_CANDIDATES_LIMIT: "300"
+          AI_PROMPT_CANDIDATES_LIMIT: "120"
         run: |
           python main.py daily_job
 
@@ -128,7 +128,7 @@ jobs:
           TRAINED_MODEL_BATCH_SIZE: "8"
           TRAINED_MODEL_WARMUP_TIMEOUT_SECONDS: "1800"
           TRAINED_MODEL_CPU_THREADS: "8"
-          AI_PROMPT_CANDIDATES_LIMIT: "300"
+          AI_PROMPT_CANDIDATES_LIMIT: "120"
         run: |
           extra_args=""
           if [ "${RESET_AI_POSITIONS}" = "true" ]; then
