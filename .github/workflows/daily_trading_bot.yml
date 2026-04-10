@@ -28,10 +28,10 @@ jobs:
       TZ: Asia/Singapore
       TRAINED_MODEL_INFERENCE_URL: ${{ secrets.TRAINED_MODEL_INFERENCE_URL }}
       TRAINED_MODEL_API_KEY: ${{ secrets.TRAINED_MODEL_API_KEY }}
-      TRAINED_MODEL_TIMEOUT_SECONDS: "60"
-      TRAINED_MODEL_READY_TIMEOUT_SECONDS: "30"
-      TRAINED_MODEL_READY_POLL_SECONDS: "5"
-      TRAINED_MODEL_MAX_RETRIES: "1"
+      TRAINED_MODEL_TIMEOUT_SECONDS: "1200"
+      TRAINED_MODEL_READY_TIMEOUT_SECONDS: "1200"
+      TRAINED_MODEL_READY_POLL_SECONDS: "15"
+      TRAINED_MODEL_MAX_RETRIES: "0"
       TRAINED_MODEL_BACKOFF_SECONDS: "5"
       TRAINED_MODEL_BATCH_SIZE: "8"
       LIGHTNING_USERNAME: ${{ secrets.LIGHTNING_USERNAME }}
@@ -64,9 +64,39 @@ jobs:
           pip install -r requirements.txt
 
       - name: Install Lightning dependencies
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_in_lightning_studio }}
         run: |
           python -m pip install "lightning[app]==2.3.2" lightning-cloud==0.5.70
+
+      - name: Ensure Lightning inference endpoint (scheduled/standard run)
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.run_in_lightning_studio) }}
+        env:
+          TRAINED_MODEL_API_KEY: ${{ secrets.TRAINED_MODEL_API_KEY }}
+          TRAINED_MODEL_CPU_THREADS: "4"
+        run: |
+          python launch_lightning_inference_studio.py \
+            --config quant_platform/configs/lightning_inference_studio.yaml \
+            --status-out lightning-inference-status.json
+
+          python - <<'PY'
+          import json
+          import os
+
+          status_path = "lightning-inference-status.json"
+          with open(status_path, "r", encoding="utf-8") as handle:
+              payload = json.load(handle)
+
+          inference_url = str(payload.get("inference_url") or "").strip()
+          if not inference_url:
+              raise SystemExit(f"Missing inference_url in {status_path}: {payload}")
+
+          github_env = os.getenv("GITHUB_ENV")
+          if not github_env:
+              raise SystemExit("GITHUB_ENV is not set by GitHub Actions.")
+          with open(github_env, "a", encoding="utf-8") as handle:
+              handle.write(f"TRAINED_MODEL_INFERENCE_URL={inference_url}\n")
+
+          print(f"Resolved TRAINED_MODEL_INFERENCE_URL={inference_url}")
+          PY
 
       - name: Restore Data and Models Cache
         if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.run_in_lightning_studio) }}
