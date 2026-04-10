@@ -404,33 +404,49 @@ def main() -> None:
         config.studio_session_name,
     )
     if args.skip_public_health_check:
-        cleanup = _stop_existing_service_processes(
+        # Fast path: if the local inference service is already healthy, reuse it.
+        local_health = _probe_local_health(
             client,
             project.project_id,
             studio_id,
             port=service_port,
-            session_name=f"{config.studio_session_name}-cleanup-{int(time.time())}",
+            session_name=f"{config.studio_session_name}-preflight-health-{int(time.time())}",
         )
-        launch, session_status = _launch_service_session(
-            client,
-            project.project_id,
-            studio_id,
-            command=_build_service_command(config),
-            session_name=config.studio_session_name,
-        )
-        local_health = _wait_for_local_health(
-            client,
-            project.project_id,
-            studio_id,
-            port=service_port,
-            session_name=f"{config.studio_session_name}-local-health-{int(time.time())}",
-        )
-        session_status = get_session_status(
-            client,
-            project.project_id,
-            studio_id,
-            config.studio_session_name,
-        ) or session_status
+        cleanup = None
+        if local_health and local_health.get("ok") is True:
+            launch = {
+                "reused_existing_service": True,
+                "session_name": config.studio_session_name,
+            }
+            session_status = existing_service_session or {"state": "running"}
+        else:
+            cleanup = _stop_existing_service_processes(
+                client,
+                project.project_id,
+                studio_id,
+                port=service_port,
+                session_name=f"{config.studio_session_name}-cleanup-{int(time.time())}",
+            )
+            launch, session_status = _launch_service_session(
+                client,
+                project.project_id,
+                studio_id,
+                command=_build_service_command(config),
+                session_name=config.studio_session_name,
+            )
+            local_health = _wait_for_local_health(
+                client,
+                project.project_id,
+                studio_id,
+                port=service_port,
+                session_name=f"{config.studio_session_name}-local-health-{int(time.time())}",
+            )
+            session_status = get_session_status(
+                client,
+                project.project_id,
+                studio_id,
+                config.studio_session_name,
+            ) or session_status
         report = {
             "project_id": project.project_id,
             "project_name": project.name,
@@ -441,7 +457,7 @@ def main() -> None:
             "repo_sync": _strip_output_fields(json_safe(repo_sync.to_dict() if hasattr(repo_sync, "to_dict") else repo_sync)),
             "bootstrap": _strip_output_fields(json_safe(bootstrap.to_dict() if hasattr(bootstrap, "to_dict") else bootstrap)),
             "launch": _strip_output_fields(json_safe(launch.to_dict() if hasattr(launch, "to_dict") else launch)),
-            "cleanup": _strip_output_fields(json_safe(cleanup)),
+            "cleanup": _strip_output_fields(json_safe(cleanup)) if cleanup is not None else None,
             "local_health": local_health,
             "candidate_urls": candidate_urls,
             "inference_url": candidate_urls[0] if candidate_urls else "",
