@@ -20,7 +20,7 @@ from train import ModelManager
 from positions import PositionTracker
 from portfolio import PortfolioManager
 from backtest_signals import build_signal_snapshot
-from state_recovery import recover_positions_from_seed, enforce_position_cap
+from state_recovery import recover_positions_from_seed, enforce_position_cap, purge_seeded_open_positions
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -1439,6 +1439,22 @@ def run_daily_job(config_path=None):
             log_step("State Recovery", "Skipped", recovery.get("reason", "no_recovery_needed"))
     except Exception as exc:
         log_step("State Recovery", "Failed", str(exc))
+
+    # Safety cleanup: remove stale OPEN rows that match static seed entries.
+    log_step("Seed Sanity", "Started")
+    try:
+        purge = purge_seeded_open_positions(config_path)
+        purged_total = int(purge.get("purged_total", 0) or 0)
+        if purged_total > 0:
+            log_step(
+                "Seed Sanity",
+                "Completed",
+                f"Purged core={purge.get('purged_core', 0)} ai={purge.get('purged_ai', 0)}",
+            )
+        else:
+            log_step("Seed Sanity", "Skipped", purge.get("reason", "none_matched"))
+    except Exception as exc:
+        log_step("Seed Sanity", "Failed", str(exc))
 
     # Safety pass: if historical open positions exceed account capital,
     # shrink quantities before today's strategy logic runs.

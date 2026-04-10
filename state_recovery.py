@@ -23,6 +23,13 @@ def _compute_target_price(entry_price, side, tp_pct):
     return float(entry_price) * (1.0 + float(tp_pct))
 
 
+def _env_flag(name, default=False):
+    raw = os.getenv(name)
+    if raw is None:
+        return bool(default)
+    return str(raw).strip().lower() in {"1", "true", "yes", "y", "on"}
+
+
 def _table_exists(cursor, table_name):
     row = cursor.execute(
         "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
@@ -209,7 +216,16 @@ def recover_positions_from_seed(config_path):
     with open(config_path, "r") as handle:
         config = yaml.safe_load(handle) or {}
 
-    seed_path = _resolve_path(base_dir, "state/positions_seed.json")
+    recovery_cfg = (config.get("state_recovery", {}) or {})
+    enabled = _env_flag(
+        "ENABLE_POSITION_SEED_RECOVERY",
+        default=bool(recovery_cfg.get("enabled", False)),
+    )
+    if not enabled:
+        return {"seed_file": None, "recovered_total": 0, "reason": "disabled"}
+
+    seed_rel = str(recovery_cfg.get("seed_file", "state/positions_seed.json") or "state/positions_seed.json")
+    seed_path = _resolve_path(base_dir, seed_rel)
     if not os.path.exists(seed_path):
         return {"seed_file": seed_path, "recovered_total": 0, "reason": "seed_missing"}
 
@@ -223,11 +239,28 @@ def recover_positions_from_seed(config_path):
     db_path = _resolve_path(base_dir, config["data"]["cache_path"])
     tp_pct = float((config.get("trading", {}) or {}).get("take_profit_pct", 0.03) or 0.03)
 
+    allow_core = _env_flag(
+        "ENABLE_CORE_POSITION_SEED_RECOVERY",
+        default=bool(recovery_cfg.get("allow_core_seed", False)),
+    )
+    allow_ai = _env_flag(
+        "ENABLE_AI_POSITION_SEED_RECOVERY",
+        default=bool(recovery_cfg.get("allow_ai_seed", False)),
+    )
+
+    allowed_tables = []
+    if allow_core:
+        allowed_tables.append("positions")
+    if allow_ai:
+        allowed_tables.append("positions_ai")
+    if not allowed_tables:
+        return {"seed_file": seed_path, "recovered_total": 0, "reason": "no_tables_enabled"}
+
     recovered = {"positions": 0, "positions_ai": 0}
     conn = sqlite3.connect(db_path)
     try:
         cursor = conn.cursor()
-        for table_name in ("positions", "positions_ai"):
+        for table_name in allowed_tables:
             row = cursor.execute(f"SELECT COUNT(*) FROM {table_name}").fetchone()
             total_rows = int(row[0] if row else 0)
             if total_rows > 0:
@@ -280,3 +313,103 @@ def recover_positions_from_seed(config_path):
         }
 
     return {"seed_file": seed_path, "recovered_total": 0, "reason": "no_recovery_needed"}
+
+
+def purge_seeded_open_positions(config_path):
+    """
+    Remove stale OPEN rows that exactly match seed entries by (symbol, side, entry_date).
+    This is a safety cleanup for previously seeded cloud states.
+    """
+    base_dir = os.path.dirname(os.path.abspath(config_path))
+    with open(config_path, "r") as handle:
+        config = yaml.safe_load(handle) or {}
+
+    recovery_cfg = (config.get("state_recovery", {}) or {})
+    enabled = _env_flag(
+        "PURGE_SEEDED_OPEN_POSITIONS",
+        default=bool(recovery_cfg.get("purge_seeded_open_positions", True)),
+    )
+    if not enabled:
+        return {"seed_file": None, "purged_total": 0, "reason": "disabled"}
+
+    seed_rel = str(recovery_cfg.get("seed_file", "state/positions_seed.json") or "state/positions_seed.json")
+    seed_path = _resolve_path(base_dir, seed_rel)
+    if not os.path.exists(seed_path):
+        return {"seed_file": seed_path, "purged_total": 0, "reason": "seed_missing"}
+
+    with open(seed_path, "r") as handle:
+        seed = json.load(handle) or {}
+
+    db_path = _resolve_path(base_dir, config["data"]["cache_path"])
+    if not os.path.exists(db_path):
+        return {"seed_file": seed_path, "purged_total": 0, "reason": "db_missing"}
+
+    seed_keys = {}
+    for table_name in ("positions", "positions_ai"):
+        rows = seed.get(table_name) or []
+        keys = set()
+        for item in rows:
+            symbol = str(item.get("symbol", "")).strip().upper()
+            side = str(item.get("side", "LONG")).strip().upper() or "LONG"
+            entry_date = str(item.get("entry_date", "")).strip()
+            if symbol and entry_date:
+                keys.add((symbol, side, entry_date))
+        seed_keys[table_name] = keys
+
+    if not any(seed_keys.values()):
+        return {"seed_file": seed_path, "purged_total": 0, "reason": "seed_empty"}
+
+    purged = {"positions": 0, "positions_ai": 0}
+    conn = sqlite3.connect(db_path)
+    try:
+        cursor = conn.cursor()
+        for table_name in ("positions", "positions_ai"):
+            if not _table_exists(cursor, table_name):
+                continue
+            keys = seed_keys.get(table_name) or set()
+            if not keys:
+                continue
+
+            rows = cursor.execute(
+                f"SELECT id, symbol, side, entry_date FROM {table_name} WHERE status='OPEN'"
+            ).fetchall()
+            if not rows:
+                continue
+
+            to_delete = []
+            for row_id, symbol, side, entry_date in rows:
+                key = (
+                    str(symbol or "").strip().upper(),
+                    str(side or "LONG").strip().upper(),
+                    str(entry_date or "").strip(),
+                )
+                if key in keys:
+                    to_delete.append(int(row_id))
+
+            if not to_delete:
+                continue
+
+            placeholders = ",".join(["?"] * len(to_delete))
+            cursor.execute(f"DELETE FROM {table_name} WHERE id IN ({placeholders})", to_delete)
+            purged[table_name] = len(to_delete)
+
+        conn.commit()
+    finally:
+        conn.close()
+
+    purged_total = int(purged["positions"] + purged["positions_ai"])
+    if purged_total:
+        logger.warning(
+            "Purged seeded OPEN positions: core=%d ai=%d",
+            purged["positions"],
+            purged["positions_ai"],
+        )
+        return {
+            "seed_file": seed_path,
+            "purged_total": purged_total,
+            "purged_core": purged["positions"],
+            "purged_ai": purged["positions_ai"],
+            "reason": "purged",
+        }
+
+    return {"seed_file": seed_path, "purged_total": 0, "reason": "none_matched"}

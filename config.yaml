@@ -1,8 +1,16 @@
 # General Configuration
 universe:
-  source: ./universe/us_top1000.csv
+  source: ./universe/sp500.csv
   auto_update: true
   min_market_cap: 1000000000  # $1B
+
+state_recovery:
+  # Safety default: do not auto-seed positions unless explicitly enabled.
+  enabled: false
+  seed_file: ./state/positions_seed.json
+  allow_core_seed: false
+  allow_ai_seed: false
+  purge_seeded_open_positions: true
 
 output:
   results_dir: "./results"
