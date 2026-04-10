@@ -767,11 +767,21 @@ class DailyBacktester:
 
         ai_cfg = self.config.get("ai_trading", {})
         ai_enabled = bool(ai_cfg.get("enabled", False))
+        ai_disabled_by_env = str(os.getenv("DISABLE_AI_TRADING", "")).strip().lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }
+        if ai_disabled_by_env:
+            ai_enabled = False
         ai_report = None
         ai_unrealized = pd.DataFrame()
         ai_closed = []
         ai_new = []
         ai_llm_status = {"enabled": False, "ok": False, "error": "disabled"}
+        if ai_disabled_by_env:
+            ai_llm_status = {"enabled": False, "ok": True, "error": "disabled_by_env"}
 
         if ai_enabled:
             ai_initial_capital = float(ai_cfg.get("initial_capital", 100000))

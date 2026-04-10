@@ -127,6 +127,7 @@ jobs:
           TWELVEDATA_API_KEYS: ${{ secrets.TWELVEDATA_API_KEYS }}
           ARM_LIVE_TRADING: ${{ secrets.ARM_LIVE_TRADING }}
           LOG_LEVEL: ${{ secrets.LOG_LEVEL }}
+          DISABLE_AI_TRADING: "1"
         run: |
           python main.py daily_job
 
