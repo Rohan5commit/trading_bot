@@ -346,7 +346,8 @@ def purge_seeded_open_positions(config_path):
 
     seed_keys = {}
     for table_name in ("positions", "positions_ai"):
-        rows = seed.get(table_name) or []
+        rows = list(seed.get(table_name) or [])
+        rows.extend(seed.get(f"legacy_seed_{table_name}") or [])
         keys = set()
         for item in rows:
             symbol = str(item.get("symbol", "")).strip().upper()
