@@ -400,6 +400,12 @@ class DailyBacktester:
 
         # Capture Meta-Learner Insights
         meta_insights = meta.get_daily_insights()
+        core_disabled_by_env = str(os.getenv("DISABLE_CORE_TRADING", "")).strip().lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }
 
         # Determine Current Capital (Compounding)
         initial_capital = 100000
@@ -685,82 +691,84 @@ class DailyBacktester:
 
         conn.close()
 
-        # Check ALL open positions for TP hits on this day
-        closed_positions = self.core_tracker.check_and_close_positions(
-            check_date=test_date.strftime('%Y-%m-%d')
-        )
-
-        # Save closed trades for meta-learning (per-day)
         os.makedirs(self.results_dir, exist_ok=True)
         date_str = test_date.strftime('%Y%m%d')
-        if closed_positions:
-            trades_df = pd.DataFrame(closed_positions)
-            trades_df = trades_df.rename(columns={
-                "realized_pnl": "strat_return",
-                "realized_pnl_dollars": "pnl_dollars",
-            })
-            trades_df.to_csv(
-                os.path.join(self.results_dir, f"trades_{date_str}.csv"),
+        report = None
+        unrealized = pd.DataFrame()
+        closed_positions = []
+        if core_disabled_by_env:
+            logger.info("Core trading disabled by env; skipping core strategy path.")
+        else:
+            # Check ALL open positions for TP hits on this day
+            closed_positions = self.core_tracker.check_and_close_positions(
+                check_date=test_date.strftime('%Y-%m-%d')
+            )
+
+            # Save closed trades for meta-learning (per-day)
+            if closed_positions:
+                trades_df = pd.DataFrame(closed_positions)
+                trades_df = trades_df.rename(columns={
+                    "realized_pnl": "strat_return",
+                    "realized_pnl_dollars": "pnl_dollars",
+                })
+                trades_df.to_csv(
+                    os.path.join(self.results_dir, f"trades_{date_str}.csv"),
+                    index=False
+                )
+
+            # Get updated portfolio state
+            summary = self.core_tracker.get_portfolio_summary()
+            unrealized = self.core_tracker.get_unrealized_pnl()
+            total_realized_dollars = summary.get('total_realized_pnl_dollars', 0.0)
+            total_unrealized_dollars = summary.get('total_unrealized_pnl_dollars', 0.0)
+
+            # Calculate Realized P&L for TODAY
+            realized_today_dollars = sum([p.get('realized_pnl_dollars', 0.0) for p in closed_positions])
+            realized_today = (realized_today_dollars / capital_start) if capital_start else 0.0
+
+            total_realized_pct = (total_realized_dollars / initial_capital) if initial_capital else 0.0
+            total_unrealized_pct = (total_unrealized_dollars / initial_capital) if initial_capital else 0.0
+            total_account_return = ((total_realized_dollars + total_unrealized_dollars) / initial_capital) if initial_capital else 0.0
+            current_capital = initial_capital + total_realized_dollars
+
+            # Available cash (notional-based; shorts consume capital too)
+            open_positions_now = self.core_tracker.get_open_positions()
+            invested_notional = 0.0
+            if not open_positions_now.empty:
+                invested_notional = float((open_positions_now["entry_price"] * open_positions_now["quantity"]).sum() or 0.0)
+            available_cash = float(current_capital) - invested_notional
+
+            report = {
+                'date': test_date.date(),
+                'new_positions_opened': len(new_positions),
+                'positions_topped_up': len(top_up_positions),
+                'positions_closed_at_tp': len(closed_positions),
+                'open_positions': summary['open_positions'],
+                'realized_pnl_today': realized_today,
+                'realized_pnl_today_dollars': realized_today_dollars,
+                'total_realized_pnl': total_realized_pct,
+                'total_realized_pnl_dollars': total_realized_dollars,
+                'total_unrealized_pnl': total_unrealized_pct,
+                'total_unrealized_pnl_dollars': total_unrealized_dollars,
+                'total_account_return': total_account_return,
+                'current_capital_estimate': current_capital,
+                'invested_notional': invested_notional,
+                'available_cash': available_cash,
+                'initial_capital': initial_capital
+            }
+
+            pd.DataFrame([report]).to_csv(
+                os.path.join(self.results_dir, f"daily_report_{date_str}.csv"),
                 index=False
             )
 
-        # Get updated portfolio state
-        summary = self.core_tracker.get_portfolio_summary()
-        unrealized = self.core_tracker.get_unrealized_pnl()
-        total_realized_dollars = summary.get('total_realized_pnl_dollars', 0.0)
-        total_unrealized_dollars = summary.get('total_unrealized_pnl_dollars', 0.0)
+            if not unrealized.empty:
+                unrealized.to_csv(
+                    os.path.join(self.results_dir, f"unrealized_{date_str}.csv"),
+                    index=False
+                )
 
-        # Save daily report
-        os.makedirs(self.results_dir, exist_ok=True)
-        date_str = test_date.strftime('%Y%m%d')
-
-        # Calculate Realized P&L for TODAY
-        realized_today_dollars = sum([p.get('realized_pnl_dollars', 0.0) for p in closed_positions])
-        realized_today = (realized_today_dollars / capital_start) if capital_start else 0.0
-
-        total_realized_pct = (total_realized_dollars / initial_capital) if initial_capital else 0.0
-        total_unrealized_pct = (total_unrealized_dollars / initial_capital) if initial_capital else 0.0
-        total_account_return = ((total_realized_dollars + total_unrealized_dollars) / initial_capital) if initial_capital else 0.0
-        current_capital = initial_capital + total_realized_dollars
-
-        # Available cash (notional-based; shorts consume capital too)
-        open_positions_now = self.core_tracker.get_open_positions()
-        invested_notional = 0.0
-        if not open_positions_now.empty:
-            invested_notional = float((open_positions_now["entry_price"] * open_positions_now["quantity"]).sum() or 0.0)
-        available_cash = float(current_capital) - invested_notional
-
-        report = {
-            'date': test_date.date(),
-            'new_positions_opened': len(new_positions),
-            'positions_topped_up': len(top_up_positions),
-            'positions_closed_at_tp': len(closed_positions),
-            'open_positions': summary['open_positions'],
-            'realized_pnl_today': realized_today,
-            'realized_pnl_today_dollars': realized_today_dollars,
-            'total_realized_pnl': total_realized_pct,
-            'total_realized_pnl_dollars': total_realized_dollars,
-            'total_unrealized_pnl': total_unrealized_pct,
-            'total_unrealized_pnl_dollars': total_unrealized_dollars,
-            'total_account_return': total_account_return,
-            'current_capital_estimate': current_capital,
-            'invested_notional': invested_notional,
-            'available_cash': available_cash,
-            'initial_capital': initial_capital
-        }
-
-        pd.DataFrame([report]).to_csv(
-            os.path.join(self.results_dir, f"daily_report_{date_str}.csv"),
-            index=False
-        )
-
-        if not unrealized.empty:
-            unrealized.to_csv(
-                os.path.join(self.results_dir, f"unrealized_{date_str}.csv"),
-                index=False
-            )
-
-        logger.info(f"Daily report saved to {self.results_dir}")
+            logger.info(f"Daily report saved to {self.results_dir}")
 
         # --- AI strategy (separate $100k account) ---
         from llm_trader import propose_trades_with_llm
@@ -1115,17 +1123,19 @@ class DailyBacktester:
         # Send TWO separate emails (Core + AI)
         from email_notifier import EmailNotifier
         notifier = EmailNotifier()
-        core_email_sent = notifier.send_daily_report(
-            report_data=report,
-            unrealized_df=unrealized,
-            closed_positions=closed_positions,
-            new_positions=entries_today,
-            meta_insights=meta_insights,
-            signal_rankings=rank_df,
-            pipeline_stats=core_pipeline_stats,
-            backtest_signals=backtest_signals,
-            subject_tag="Core"
-        )
+        core_email_sent = True
+        if report is not None:
+            core_email_sent = notifier.send_daily_report(
+                report_data=report,
+                unrealized_df=unrealized,
+                closed_positions=closed_positions,
+                new_positions=entries_today,
+                meta_insights=meta_insights,
+                signal_rankings=rank_df,
+                pipeline_stats=core_pipeline_stats,
+                backtest_signals=backtest_signals,
+                subject_tag="Core"
+            )
 
         ai_email_sent = True
         if ai_report is not None:
@@ -1145,11 +1155,19 @@ class DailyBacktester:
         # In AI-enabled runs, both strategy paths must complete cleanly.
         # Core-only maintenance runs can still succeed without an AI email.
         if ai_enabled:
-            email_sent = bool(core_email_sent) and bool(ai_email_sent) and (ai_report is not None)
+            if report is None:
+                email_sent = bool(ai_email_sent) and (ai_report is not None)
+            else:
+                email_sent = bool(core_email_sent) and bool(ai_email_sent) and (ai_report is not None)
         else:
-            email_sent = bool(core_email_sent)
+            email_sent = bool(core_email_sent) if report is not None else True
         if email_sent:
-            for marker in [f"email_sent_core_{date_str}.ok", f"email_sent_ai_{date_str}.ok", f"email_sent_{date_str}.ok"]:
+            markers = [f"email_sent_{date_str}.ok"]
+            if report is not None:
+                markers.append(f"email_sent_core_{date_str}.ok")
+            if ai_report is not None:
+                markers.append(f"email_sent_ai_{date_str}.ok")
+            for marker in markers:
                 marker_path = os.path.join(self.results_dir, marker)
                 try:
                     with open(marker_path, "w") as handle:

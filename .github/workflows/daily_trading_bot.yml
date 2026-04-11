@@ -117,24 +117,8 @@ jobs:
         run: |
           python launch_lightning_inference_studio.py \
             --config quant_platform/configs/lightning_inference_studio.yaml \
-            --status-out lightning-inference-status-public.json
-
-      - name: Export Lightning inference URL
-        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.run_in_lightning_studio) && ((github.event_name != 'workflow_dispatch') || (github.event_name == 'workflow_dispatch' && !inputs.disable_ai_trading)) }}
-        run: |
-          python - <<'PY'
-          import json
-          from pathlib import Path
-
-          payload = json.loads(Path("lightning-inference-status-public.json").read_text())
-          url = str(payload.get("inference_url") or "").strip()
-          if not url:
-              raise SystemExit("Missing inference_url in lightning-inference-status-public.json")
-          with open(Path.cwd() / Path(".github_env_out"), "w") as handle:
-              handle.write(f"TRAINED_MODEL_INFERENCE_URL={url}\n")
-          print(url)
-          PY
-          cat .github_env_out >> "$GITHUB_ENV"
+            --skip-public-health-check \
+            --status-out lightning-inference-status-local.json
 
       - name: Launch Lightning inference studio (manual full-studio mode)
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_in_lightning_studio }}
@@ -159,16 +143,38 @@ jobs:
           TWELVEDATA_API_KEYS: ${{ secrets.TWELVEDATA_API_KEYS }}
           ARM_LIVE_TRADING: ${{ secrets.ARM_LIVE_TRADING }}
           LOG_LEVEL: ${{ secrets.LOG_LEVEL }}
-          DISABLE_AI_TRADING: ${{ github.event_name == 'workflow_dispatch' && inputs.disable_ai_trading || 'false' }}
+          DISABLE_AI_TRADING: "1"
+        run: |
+          python main.py daily_job
+
+      - name: Run AI Trading Bot in Lightning Studio
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.run_in_lightning_studio) && ((github.event_name != 'workflow_dispatch') || (github.event_name == 'workflow_dispatch' && !inputs.disable_ai_trading)) }}
+        env:
+          SMTP_SERVER: ${{ secrets.SMTP_SERVER }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SENDER_EMAIL: ${{ secrets.SENDER_EMAIL }}
+          SENDER_PASSWORD: ${{ secrets.SENDER_PASSWORD }}
+          RECIPIENT_EMAIL: ${{ secrets.RECIPIENT_EMAIL }}
+          TRAINED_MODEL_API_KEY: ${{ secrets.TRAINED_MODEL_API_KEY }}
+          TWELVEDATA_API_KEYS: ${{ secrets.TWELVEDATA_API_KEYS }}
+          ARM_LIVE_TRADING: ${{ secrets.ARM_LIVE_TRADING }}
+          LOG_LEVEL: ${{ secrets.LOG_LEVEL }}
+          DISABLE_CORE_TRADING: "1"
           TRAINED_MODEL_TIMEOUT_SECONDS: "1200"
           TRAINED_MODEL_READY_TIMEOUT_SECONDS: "1200"
           TRAINED_MODEL_READY_POLL_SECONDS: "15"
           TRAINED_MODEL_MAX_RETRIES: "0"
           TRAINED_MODEL_BATCH_SIZE: "8"
+          TRAINED_MODEL_WARMUP_TIMEOUT_SECONDS: "1800"
+          TRAINED_MODEL_CPU_THREADS: "4"
           TRAINED_MODEL_CLASS_TOKEN_INFERENCE: "1"
           AI_PROMPT_CANDIDATES_LIMIT: "120"
         run: |
-          python main.py daily_job
+          python run_daily_job_lightning_studio.py \
+            --config quant_platform/configs/lightning_inference_studio.yaml \
+            --result-out results/daily_job_lightning_studio.json \
+            --session-name trading-bot-ai-daily-job-${{ github.run_id }} \
+            --timeout-seconds 10800
 
       - name: Run Trading Bot in Lightning Studio
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_in_lightning_studio }}
@@ -214,7 +220,6 @@ jobs:
             results/*.json
             *.log
             lightning-inference-status-local.json
-            lightning-inference-status-public.json
           retention-days: 7
 
       - name: Save Data and Models Cache
