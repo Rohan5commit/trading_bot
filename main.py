@@ -1142,9 +1142,12 @@ class DailyBacktester:
                 subject_tag="AI"
             )
 
-        # A run is considered complete once at least one strategy email is sent.
-        # This prevents transient AI-email failures from failing the whole workflow.
-        email_sent = bool(core_email_sent) or bool(ai_email_sent)
+        # In AI-enabled runs, both strategy paths must complete cleanly.
+        # Core-only maintenance runs can still succeed without an AI email.
+        if ai_enabled:
+            email_sent = bool(core_email_sent) and bool(ai_email_sent) and (ai_report is not None)
+        else:
+            email_sent = bool(core_email_sent)
         if email_sent:
             for marker in [f"email_sent_core_{date_str}.ok", f"email_sent_ai_{date_str}.ok", f"email_sent_{date_str}.ok"]:
                 marker_path = os.path.join(self.results_dir, marker)
@@ -1154,7 +1157,7 @@ class DailyBacktester:
                 except Exception as exc:
                     logger.warning(f"Failed to write email sent marker: {exc}")
         else:
-            logger.warning("One or more emails not sent; scheduler will allow retry.")
+            logger.warning("One or more required strategy emails were not sent; scheduler will allow retry.")
 
         # Cleanup: Keep only last 2 days of files
         self._cleanup_old_files(self.results_dir, keep_days=2)

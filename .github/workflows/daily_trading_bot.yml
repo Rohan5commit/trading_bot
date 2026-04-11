@@ -11,6 +11,11 @@ on:
         required: false
         default: false
         type: boolean
+      disable_ai_trading:
+        description: "Run only the core bot and skip AI trading"
+        required: false
+        default: false
+        type: boolean
       reset_ai_positions:
         description: "Clear only AI positions before the manual run so the trained model must generate fresh trades"
         required: false
@@ -69,7 +74,7 @@ jobs:
           pip install -r requirements.txt
 
       - name: Install Lightning dependencies
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_in_lightning_studio }}
+        if: ${{ (github.event_name == 'workflow_dispatch' && inputs.run_in_lightning_studio) || (github.event_name != 'workflow_dispatch') || (github.event_name == 'workflow_dispatch' && !inputs.disable_ai_trading) }}
         run: |
           python -m pip install "lightning[app]==2.3.2" lightning-cloud==0.5.70
 
@@ -105,6 +110,33 @@ jobs:
             ${{ runner.os }}-trading-bot-
 
       - name: Launch Lightning inference studio
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.run_in_lightning_studio) && ((github.event_name != 'workflow_dispatch') || (github.event_name == 'workflow_dispatch' && !inputs.disable_ai_trading)) }}
+        env:
+          TRAINED_MODEL_API_KEY: ${{ secrets.TRAINED_MODEL_API_KEY }}
+          TRAINED_MODEL_CPU_THREADS: "4"
+        run: |
+          python launch_lightning_inference_studio.py \
+            --config quant_platform/configs/lightning_inference_studio.yaml \
+            --status-out lightning-inference-status-public.json
+
+      - name: Export Lightning inference URL
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.run_in_lightning_studio) && ((github.event_name != 'workflow_dispatch') || (github.event_name == 'workflow_dispatch' && !inputs.disable_ai_trading)) }}
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          payload = json.loads(Path("lightning-inference-status-public.json").read_text())
+          url = str(payload.get("inference_url") or "").strip()
+          if not url:
+              raise SystemExit("Missing inference_url in lightning-inference-status-public.json")
+          with open(Path.cwd() / Path(".github_env_out"), "w") as handle:
+              handle.write(f"TRAINED_MODEL_INFERENCE_URL={url}\n")
+          print(url)
+          PY
+          cat .github_env_out >> "$GITHUB_ENV"
+
+      - name: Launch Lightning inference studio (manual full-studio mode)
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_in_lightning_studio }}
         env:
           TRAINED_MODEL_API_KEY: ${{ secrets.TRAINED_MODEL_API_KEY }}
@@ -127,7 +159,14 @@ jobs:
           TWELVEDATA_API_KEYS: ${{ secrets.TWELVEDATA_API_KEYS }}
           ARM_LIVE_TRADING: ${{ secrets.ARM_LIVE_TRADING }}
           LOG_LEVEL: ${{ secrets.LOG_LEVEL }}
-          DISABLE_AI_TRADING: "1"
+          DISABLE_AI_TRADING: ${{ github.event_name == 'workflow_dispatch' && inputs.disable_ai_trading || 'false' }}
+          TRAINED_MODEL_TIMEOUT_SECONDS: "1200"
+          TRAINED_MODEL_READY_TIMEOUT_SECONDS: "1200"
+          TRAINED_MODEL_READY_POLL_SECONDS: "15"
+          TRAINED_MODEL_MAX_RETRIES: "0"
+          TRAINED_MODEL_BATCH_SIZE: "8"
+          TRAINED_MODEL_CLASS_TOKEN_INFERENCE: "1"
+          AI_PROMPT_CANDIDATES_LIMIT: "120"
         run: |
           python main.py daily_job
 
@@ -175,6 +214,7 @@ jobs:
             results/*.json
             *.log
             lightning-inference-status-local.json
+            lightning-inference-status-public.json
           retention-days: 7
 
       - name: Save Data and Models Cache
