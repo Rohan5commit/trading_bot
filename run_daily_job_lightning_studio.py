@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import csv
 import json
 import os
@@ -31,6 +32,10 @@ from lightning_studio_utils import (  # noqa: E402
 RESULT_BEGIN = "__DAILY_STUDIO_RESULT_BEGIN__"
 RESULT_END = "__DAILY_STUDIO_RESULT_END__"
 RESULT_PATH_PREFIX = "__DAILY_STUDIO_RESULT_PATH__="
+FILE_BEGIN = "__DAILY_STUDIO_FILE_BEGIN__"
+FILE_END = "__DAILY_STUDIO_FILE_END__"
+FILE_PATH_PREFIX = "__DAILY_STUDIO_FILE_PATH__="
+FILE_MISSING_PREFIX = "__DAILY_STUDIO_FILE_MISSING__="
 RESULT_CACHE_PATH = "results/daily_job_studio_current.json"
 LOG_CACHE_PATH = "results/daily_job_studio_current.log"
 
@@ -176,7 +181,11 @@ def _build_daily_command(config, *, service_port: int, reset_ai_positions: bool,
             "trained_model_batch_failures = text.count('Trained model batch inference failed')",
             "trained_model_unusable = 'No usable trained-model predictions' in text",
             "ai_reports = sorted(glob.glob(str(results_dir / 'daily_report_ai_*.csv')))",
-            "core_reports = sorted(glob.glob(str(results_dir / 'daily_report_*.csv')))",
+            "core_reports = [",
+            "    path",
+            "    for path in sorted(glob.glob(str(results_dir / 'daily_report_*.csv')))",
+            "    if not Path(path).name.startswith('daily_report_ai_')",
+            "]",
             "ai_row = {}",
             "if ai_reports:",
             "    with open(ai_reports[-1], newline='') as handle:",
@@ -380,6 +389,108 @@ def _extract_result(output: str) -> tuple[str | None, dict[str, Any]]:
     return result_path, payload
 
 
+def _fetch_remote_file(
+    client,
+    project_id: str,
+    studio_id: str,
+    *,
+    config,
+    remote_relative_path: str,
+    session_name: str,
+) -> tuple[str | None, bytes | None]:
+    repo_dir = Path(config.studio_root_dir.rstrip("/")) / config.studio_repo_dir
+    script = "\n".join(
+        [
+            "import base64",
+            "from pathlib import Path",
+            f"path = Path({remote_relative_path!r})",
+            "if not path.exists() or not path.is_file():",
+            f"    print({FILE_MISSING_PREFIX!r} + str(path))",
+            "    raise SystemExit(0)",
+            f"print({FILE_PATH_PREFIX!r} + str(path))",
+            f"print({FILE_BEGIN!r})",
+            "print(base64.b64encode(path.read_bytes()).decode('ascii'))",
+            f"print({FILE_END!r})",
+        ]
+    )
+    command = "\n".join(
+        [
+            "set -euo pipefail",
+            f"cd {shlex.quote(str(repo_dir))}",
+            "python - <<'PY'",
+            script,
+            "PY",
+        ]
+    )
+    result = execute_studio_command(
+        client,
+        project_id,
+        studio_id,
+        command=f"bash -lc {shlex.quote(command)}",
+        session_name=session_name,
+        detached=False,
+    )
+    output = str(_command_payload(result).get("output") or "")
+    missing_path = None
+    remote_path = None
+    for line in output.splitlines():
+        if line.startswith(FILE_MISSING_PREFIX):
+            missing_path = line.split("=", 1)[1].strip() if "=" in line else line[len(FILE_MISSING_PREFIX):].strip()
+            break
+        if line.startswith(FILE_PATH_PREFIX):
+            remote_path = line.split("=", 1)[1].strip() if "=" in line else line[len(FILE_PATH_PREFIX):].strip()
+            break
+    if missing_path is not None:
+        return missing_path, None
+    if FILE_BEGIN not in output or FILE_END not in output:
+        raise RuntimeError(f"Studio file fetch output did not include file markers for {remote_relative_path}.")
+    fragment = output.split(FILE_BEGIN, 1)[1].split(FILE_END, 1)[0].strip()
+    return remote_path, base64.b64decode(fragment.encode("ascii"))
+
+
+def _sync_remote_ai_artifacts(
+    client,
+    project_id: str,
+    studio_id: str,
+    *,
+    config,
+    payload: dict[str, Any] | None,
+    session_prefix: str,
+) -> list[str]:
+    if not isinstance(payload, dict):
+        return []
+    ai_report = payload.get("result", {}).get("ai_report") if isinstance(payload.get("result"), dict) else None
+    if not isinstance(ai_report, dict):
+        return []
+    date_text = str(ai_report.get("date") or "").strip()
+    if not date_text:
+        return []
+    date_token = date_text.replace("-", "")
+    targets = [
+        f"results/daily_report_ai_{date_token}.csv",
+        f"results/unrealized_ai_{date_token}.csv",
+    ]
+    local_results_dir = Path("results")
+    local_results_dir.mkdir(parents=True, exist_ok=True)
+    saved_files: list[str] = []
+    for index, remote_path in enumerate(targets, start=1):
+        fetched_path, blob = _fetch_remote_file(
+            client,
+            project_id,
+            studio_id,
+            config=config,
+            remote_relative_path=remote_path,
+            session_name=f"{session_prefix}-artifact-{index}",
+        )
+        if blob is None:
+            continue
+        filename = Path(fetched_path or remote_path).name
+        local_path = local_results_dir / filename
+        local_path.write_bytes(blob)
+        saved_files.append(str(local_path))
+    return saved_files
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", default="quant_platform/configs/lightning_inference_studio.yaml")
@@ -440,6 +551,15 @@ def main() -> None:
             session_name=f"{args.session_name}-fetch",
         )
 
+    synced_files = _sync_remote_ai_artifacts(
+        client,
+        project.project_id,
+        studio_id,
+        config=config,
+        payload={"result": payload} if isinstance(payload, dict) else None,
+        session_prefix=f"{args.session_name}-sync",
+    )
+
     report = {
         "project_id": project.project_id,
         "project_name": project.name,
@@ -450,6 +570,7 @@ def main() -> None:
         "session": _metadata_only(session_status),
         "result_path": result_path,
         "result": payload,
+        "synced_files": synced_files,
     }
     Path(args.result_out).parent.mkdir(parents=True, exist_ok=True)
     Path(args.result_out).write_text(json.dumps(json_safe(report), indent=2) + "\n")
