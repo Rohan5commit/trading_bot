@@ -39,6 +39,19 @@ def _safe_int(value, default=0):
         return default
 
 
+def _format_quantity(value):
+    try:
+        qty = float(value)
+    except (TypeError, ValueError):
+        return "N/A"
+    abs_qty = abs(qty)
+    if abs_qty >= 10:
+        return f"{qty:.0f}"
+    if abs_qty >= 1:
+        return f"{qty:.2f}".rstrip("0").rstrip(".")
+    return f"{qty:.4f}".rstrip("0").rstrip(".")
+
+
 class EmailNotifier:
     def __init__(self):
         self.smtp_server = os.getenv('SMTP_SERVER', 'smtp.gmail.com')
@@ -365,7 +378,7 @@ class EmailNotifier:
                             pos.get("side", "LONG"),
                             f"{entry_price:.2f}" if isinstance(entry_price, (int, float)) else "N/A",
                             f"{target_price:.2f}" if isinstance(target_price, (int, float)) else "N/A",
-                            f"{qty:.0f}",
+                            _format_quantity(qty),
                             f"{allocation_pct:.1f}%" if allocation_pct is not None else "N/A",
                             f"${allocation_dollars:,.2f}" if allocation_dollars is not None else "N/A",
                             pos.get("reason") or "",
@@ -454,7 +467,7 @@ class EmailNotifier:
                     side,
                     f"{entry_price:.2f}" if entry_price is not None else "N/A",
                     f"{target_price:.2f}" if target_price is not None else "N/A",
-                    f"{qty:.0f}",
+                    _format_quantity(qty),
                     f"{allocation_pct:.1f}%" if allocation_pct is not None else "N/A",
                     f"${allocation_dollars:,.2f}" if allocation_dollars is not None else "N/A",
                     pos.get('reason') or ""

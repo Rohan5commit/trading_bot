@@ -514,6 +514,19 @@ class DailyBacktester:
 
         # Open NEW positions for selected stocks
         tp_pct = self.config.get('trading', {}).get('take_profit_pct', 0.03)
+        try:
+            min_order_dollars_cfg = float(self.config.get("trading", {}).get("min_order_dollars", 500.0) or 500.0)
+        except (TypeError, ValueError):
+            min_order_dollars_cfg = 500.0
+        try:
+            min_order_equity_pct_cfg = float(self.config.get("trading", {}).get("min_order_equity_pct", 0.005) or 0.005)
+        except (TypeError, ValueError):
+            min_order_equity_pct_cfg = 0.005
+        min_order_dollars = max(
+            0.0,
+            float(min_order_dollars_cfg),
+            float(current_capital) * max(0.0, float(min_order_equity_pct_cfg)),
+        )
         new_positions = []
         top_up_positions = []
         remaining_capital = float(available_capital)
@@ -540,6 +553,15 @@ class DailyBacktester:
                 )
                 allocation_dollars = min(requested_allocation, max(0.0, remaining_capital))
                 if allocation_dollars <= 0.0:
+                    continue
+                if allocation_dollars < min_order_dollars:
+                    logger.info(
+                        "Skipping %s %s entry because allocation %.2f is below minimum order floor %.2f.",
+                        symbol,
+                        side,
+                        allocation_dollars,
+                        min_order_dollars,
+                    )
                     continue
                 quantity = allocation_dollars / entry_price
                 allocation_pct = (allocation_dollars / current_capital * 100) if current_capital else 0.0
@@ -581,6 +603,13 @@ class DailyBacktester:
         extra_to_deploy = max(0.0, float(remaining_capital) - float(allowed_idle_cash))
         max_position_equity_pct = float(risk_cfg.get("max_position_equity_pct", 1.0) or 1.0)
         max_position_equity_pct = max(0.0, min(1.0, max_position_equity_pct))
+        if 0.0 < extra_to_deploy < min_order_dollars:
+            logger.info(
+                "Core cash above idle-cash cap is %.2f, below minimum order floor %.2f; keeping cash instead of micro top-ups.",
+                extra_to_deploy,
+                min_order_dollars,
+            )
+            extra_to_deploy = 0.0
         if extra_to_deploy > 0.0 and max_position_equity_pct > 0.0:
             open_positions_for_top_up = self.core_tracker.get_open_positions()
             if open_positions_for_top_up is not None and not open_positions_for_top_up.empty:
@@ -638,6 +667,8 @@ class DailyBacktester:
                         continue
 
                     allocation_dollars = min(extra_to_deploy, room)
+                    if allocation_dollars < min_order_dollars:
+                        continue
                     quantity = allocation_dollars / entry_price if entry_price else 0.0
                     if quantity <= 0.0:
                         continue
@@ -674,10 +705,17 @@ class DailyBacktester:
                     extra_to_deploy = max(0.0, extra_to_deploy - allocation_dollars)
 
                 if extra_to_deploy > 0.0:
-                    logger.warning(
-                        "Core cash drag persists after top-ups; %.2f cash still exceeds the idle-cash cap.",
-                        extra_to_deploy,
-                    )
+                    if extra_to_deploy < min_order_dollars:
+                        logger.info(
+                            "Core retained %.2f above the idle-cash cap because any remaining top-up would be below the minimum order floor %.2f.",
+                            extra_to_deploy,
+                            min_order_dollars,
+                        )
+                    else:
+                        logger.warning(
+                            "Core cash drag persists after top-ups; %.2f cash still exceeds the idle-cash cap.",
+                            extra_to_deploy,
+                        )
 
         entries_today = list(new_positions) + list(top_up_positions)
 

@@ -157,6 +157,9 @@ trading:
   equal_weight: false
   enable_shorts: true
   max_shorts: 5
+  # Skip token-sized orders; effective minimum is max(min_order_dollars, current_equity * min_order_equity_pct).
+  min_order_dollars: 500
+  min_order_equity_pct: 0.005
   # adjusted_score <= short_threshold becomes a short candidate (more negative = stronger short)
   short_threshold: -0.002
   take_profit_pct: 0.03
