@@ -69,17 +69,36 @@ jobs:
           cache: 'pip'
 
       - name: Install dependencies
+        id: install_base_dependencies
+        continue-on-error: true
+        timeout-minutes: 20
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Install Lightning dependencies
-        if: ${{ (github.event_name == 'workflow_dispatch' && inputs.run_in_lightning_studio) || (github.event_name != 'workflow_dispatch') || (github.event_name == 'workflow_dispatch' && !inputs.disable_ai_trading) }}
+      - name: Send Base Dependency Failure Reports
+        if: ${{ always() && !(github.event_name == 'workflow_dispatch' && inputs.run_in_lightning_studio) && steps.install_base_dependencies.outcome == 'failure' }}
+        continue-on-error: true
+        env:
+          SMTP_SERVER: ${{ secrets.SMTP_SERVER }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SENDER_EMAIL: ${{ secrets.SENDER_EMAIL }}
+          SENDER_PASSWORD: ${{ secrets.SENDER_PASSWORD }}
+          RECIPIENT_EMAIL: ${{ secrets.RECIPIENT_EMAIL }}
+          RUN_URL: ${{ format('{0}/{1}/actions/runs/{2}', github.server_url, github.repository, github.run_id) }}
         run: |
-          python -m pip install "lightning[app]==2.3.2" lightning-cloud==0.5.70
+          python send_failure_report.py \
+            --strategy-tag Core \
+            --source "Install dependencies" \
+            --message "Base Python dependencies failed to install before the core daily job could start. Run: ${RUN_URL}"
+          python send_failure_report.py \
+            --strategy-tag AI \
+            --source "Install dependencies" \
+            --message "Base Python dependencies failed to install before the AI daily job could start. Run: ${RUN_URL}" \
+            --model-used "quant-trained-trading-model"
 
       - name: Restore Core Cache (Exact Key)
-        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.run_in_lightning_studio) && github.event_name == 'workflow_dispatch' && inputs.core_cache_restore_key != '' }}
+        if: ${{ steps.install_base_dependencies.outcome == 'success' && !(github.event_name == 'workflow_dispatch' && inputs.run_in_lightning_studio) && github.event_name == 'workflow_dispatch' && inputs.core_cache_restore_key != '' }}
         id: restore_core_cache_exact
         uses: actions/cache/restore@v4
         with:
@@ -90,7 +109,7 @@ jobs:
           key: ${{ inputs.core_cache_restore_key }}
 
       - name: Verify Exact Core Cache Hit
-        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.run_in_lightning_studio) && github.event_name == 'workflow_dispatch' && inputs.core_cache_restore_key != '' }}
+        if: ${{ steps.install_base_dependencies.outcome == 'success' && !(github.event_name == 'workflow_dispatch' && inputs.run_in_lightning_studio) && github.event_name == 'workflow_dispatch' && inputs.core_cache_restore_key != '' }}
         run: |
           if [ "${{ steps.restore_core_cache_exact.outputs.cache-hit }}" != "true" ]; then
             echo "Exact cache key not found: ${{ inputs.core_cache_restore_key }}" >&2
@@ -98,7 +117,7 @@ jobs:
           fi
 
       - name: Restore Data and Models Cache (Latest Prefix)
-        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.run_in_lightning_studio) && !(github.event_name == 'workflow_dispatch' && inputs.core_cache_restore_key != '') }}
+        if: ${{ steps.install_base_dependencies.outcome == 'success' && !(github.event_name == 'workflow_dispatch' && inputs.run_in_lightning_studio) && !(github.event_name == 'workflow_dispatch' && inputs.core_cache_restore_key != '') }}
         uses: actions/cache/restore@v4
         with:
           path: |
@@ -109,8 +128,54 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-trading-bot-
 
+      - name: Run Trading Bot
+        id: run_core_bot
+        if: ${{ steps.install_base_dependencies.outcome == 'success' && !(github.event_name == 'workflow_dispatch' && inputs.run_in_lightning_studio) }}
+        continue-on-error: true
+        timeout-minutes: 45
+        env:
+          SMTP_SERVER: ${{ secrets.SMTP_SERVER }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SENDER_EMAIL: ${{ secrets.SENDER_EMAIL }}
+          SENDER_PASSWORD: ${{ secrets.SENDER_PASSWORD }}
+          RECIPIENT_EMAIL: ${{ secrets.RECIPIENT_EMAIL }}
+          TRAINED_MODEL_API_KEY: ${{ secrets.TRAINED_MODEL_API_KEY }}
+          TWELVEDATA_API_KEYS: ${{ secrets.TWELVEDATA_API_KEYS }}
+          ARM_LIVE_TRADING: ${{ secrets.ARM_LIVE_TRADING }}
+          LOG_LEVEL: ${{ secrets.LOG_LEVEL }}
+          DISABLE_AI_TRADING: "1"
+        run: |
+          python main.py daily_job
+
+      - name: Send Core Failure Report
+        if: ${{ always() && !(github.event_name == 'workflow_dispatch' && inputs.run_in_lightning_studio) && steps.run_core_bot.outcome == 'failure' }}
+        continue-on-error: true
+        env:
+          SMTP_SERVER: ${{ secrets.SMTP_SERVER }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SENDER_EMAIL: ${{ secrets.SENDER_EMAIL }}
+          SENDER_PASSWORD: ${{ secrets.SENDER_PASSWORD }}
+          RECIPIENT_EMAIL: ${{ secrets.RECIPIENT_EMAIL }}
+          RUN_URL: ${{ format('{0}/{1}/actions/runs/{2}', github.server_url, github.repository, github.run_id) }}
+        run: |
+          python send_failure_report.py \
+            --strategy-tag Core \
+            --source "Run Trading Bot" \
+            --message "Core daily job failed before sending its report email. Run: ${RUN_URL}"
+
+      - name: Install Lightning dependencies
+        id: install_lightning_deps
+        if: ${{ steps.install_base_dependencies.outcome == 'success' && ((github.event_name == 'workflow_dispatch' && inputs.run_in_lightning_studio) || (github.event_name != 'workflow_dispatch') || (github.event_name == 'workflow_dispatch' && !inputs.disable_ai_trading)) }}
+        continue-on-error: ${{ !(github.event_name == 'workflow_dispatch' && inputs.run_in_lightning_studio) }}
+        timeout-minutes: 20
+        run: |
+          python -m pip install "lightning[app]==2.3.2" lightning-cloud==0.5.70
+
       - name: Launch Lightning inference studio
-        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.run_in_lightning_studio) && ((github.event_name != 'workflow_dispatch') || (github.event_name == 'workflow_dispatch' && !inputs.disable_ai_trading)) }}
+        id: launch_lightning_inference
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.run_in_lightning_studio) && ((github.event_name != 'workflow_dispatch') || (github.event_name == 'workflow_dispatch' && !inputs.disable_ai_trading)) && steps.install_lightning_deps.outcome == 'success' }}
+        continue-on-error: true
+        timeout-minutes: 20
         env:
           TRAINED_MODEL_API_KEY: ${{ secrets.TRAINED_MODEL_API_KEY }}
           TRAINED_MODEL_CPU_THREADS: "4"
@@ -131,24 +196,11 @@ jobs:
             --skip-public-health-check \
             --status-out lightning-inference-status-local.json
 
-      - name: Run Trading Bot
-        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.run_in_lightning_studio) }}
-        env:
-          SMTP_SERVER: ${{ secrets.SMTP_SERVER }}
-          SMTP_PORT: ${{ secrets.SMTP_PORT }}
-          SENDER_EMAIL: ${{ secrets.SENDER_EMAIL }}
-          SENDER_PASSWORD: ${{ secrets.SENDER_PASSWORD }}
-          RECIPIENT_EMAIL: ${{ secrets.RECIPIENT_EMAIL }}
-          TRAINED_MODEL_API_KEY: ${{ secrets.TRAINED_MODEL_API_KEY }}
-          TWELVEDATA_API_KEYS: ${{ secrets.TWELVEDATA_API_KEYS }}
-          ARM_LIVE_TRADING: ${{ secrets.ARM_LIVE_TRADING }}
-          LOG_LEVEL: ${{ secrets.LOG_LEVEL }}
-          DISABLE_AI_TRADING: "1"
-        run: |
-          python main.py daily_job
-
       - name: Run AI Trading Bot in Lightning Studio
-        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.run_in_lightning_studio) && ((github.event_name != 'workflow_dispatch') || (github.event_name == 'workflow_dispatch' && !inputs.disable_ai_trading)) }}
+        id: run_ai_bot_in_lightning_studio
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.run_in_lightning_studio) && ((github.event_name != 'workflow_dispatch') || (github.event_name == 'workflow_dispatch' && !inputs.disable_ai_trading)) && steps.install_lightning_deps.outcome == 'success' && steps.launch_lightning_inference.outcome == 'success' }}
+        continue-on-error: true
+        timeout-minutes: 90
         env:
           SMTP_SERVER: ${{ secrets.SMTP_SERVER }}
           SMTP_PORT: ${{ secrets.SMTP_PORT }}
@@ -175,6 +227,37 @@ jobs:
             --result-out results/daily_job_lightning_studio.json \
             --session-name trading-bot-ai-daily-job-${{ github.run_id }} \
             --timeout-seconds 10800
+
+      - name: Send AI Failure Report
+        if: ${{ always() && !(github.event_name == 'workflow_dispatch' && inputs.run_in_lightning_studio) && ((github.event_name != 'workflow_dispatch') || (github.event_name == 'workflow_dispatch' && !inputs.disable_ai_trading)) && (steps.install_lightning_deps.outcome == 'failure' || steps.launch_lightning_inference.outcome == 'failure' || steps.run_ai_bot_in_lightning_studio.outcome == 'failure') }}
+        continue-on-error: true
+        env:
+          SMTP_SERVER: ${{ secrets.SMTP_SERVER }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SENDER_EMAIL: ${{ secrets.SENDER_EMAIL }}
+          SENDER_PASSWORD: ${{ secrets.SENDER_PASSWORD }}
+          RECIPIENT_EMAIL: ${{ secrets.RECIPIENT_EMAIL }}
+          RUN_URL: ${{ format('{0}/{1}/actions/runs/{2}', github.server_url, github.repository, github.run_id) }}
+          INSTALL_LIGHTNING_OUTCOME: ${{ steps.install_lightning_deps.outcome }}
+          LAUNCH_LIGHTNING_OUTCOME: ${{ steps.launch_lightning_inference.outcome }}
+          RUN_AI_OUTCOME: ${{ steps.run_ai_bot_in_lightning_studio.outcome }}
+        run: |
+          source_step="Run AI Trading Bot in Lightning Studio"
+          detail="AI daily job failed before sending its report email. Run: ${RUN_URL}"
+          if [ "${INSTALL_LIGHTNING_OUTCOME}" != "success" ]; then
+            source_step="Install Lightning dependencies"
+            detail="Lightning dependencies failed before AI execution. Run: ${RUN_URL}"
+          elif [ "${LAUNCH_LIGHTNING_OUTCOME}" != "success" ]; then
+            source_step="Launch Lightning inference studio"
+            detail="Lightning inference studio did not become ready inside the workflow budget. Run: ${RUN_URL}"
+          elif [ "${RUN_AI_OUTCOME}" != "success" ]; then
+            detail="AI daily job failed inside Lightning Studio before sending its report email. Run: ${RUN_URL}"
+          fi
+          python send_failure_report.py \
+            --strategy-tag AI \
+            --source "${source_step}" \
+            --message "${detail}" \
+            --model-used "quant-trained-trading-model"
 
       - name: Run Trading Bot in Lightning Studio
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_in_lightning_studio }}
@@ -231,3 +314,38 @@ jobs:
             models/
             model_registry.json
           key: ${{ runner.os }}-trading-bot-${{ github.run_id }}
+
+      - name: Evaluate Scheduled/Runner Run Status
+        if: ${{ always() && !(github.event_name == 'workflow_dispatch' && inputs.run_in_lightning_studio) }}
+        env:
+          BASE_DEPS_OUTCOME: ${{ steps.install_base_dependencies.outcome }}
+          CORE_OUTCOME: ${{ steps.run_core_bot.outcome }}
+          AI_EXPECTED: ${{ (github.event_name != 'workflow_dispatch') || (github.event_name == 'workflow_dispatch' && !inputs.disable_ai_trading) }}
+          INSTALL_LIGHTNING_OUTCOME: ${{ steps.install_lightning_deps.outcome }}
+          LAUNCH_LIGHTNING_OUTCOME: ${{ steps.launch_lightning_inference.outcome }}
+          RUN_AI_OUTCOME: ${{ steps.run_ai_bot_in_lightning_studio.outcome }}
+        run: |
+          rc=0
+          if [ "${BASE_DEPS_OUTCOME}" != "success" ]; then
+            echo "Base dependency install failed: ${BASE_DEPS_OUTCOME}"
+            rc=1
+          fi
+          if [ "${BASE_DEPS_OUTCOME}" = "success" ] && [ "${CORE_OUTCOME}" != "success" ]; then
+            echo "Core path failed: ${CORE_OUTCOME}"
+            rc=1
+          fi
+          if [ "${BASE_DEPS_OUTCOME}" = "success" ] && [ "${AI_EXPECTED}" = "true" ]; then
+            if [ "${INSTALL_LIGHTNING_OUTCOME}" != "success" ]; then
+              echo "Lightning dependency install failed: ${INSTALL_LIGHTNING_OUTCOME}"
+              rc=1
+            fi
+            if [ "${LAUNCH_LIGHTNING_OUTCOME}" != "success" ]; then
+              echo "Lightning launch failed: ${LAUNCH_LIGHTNING_OUTCOME}"
+              rc=1
+            fi
+            if [ "${LAUNCH_LIGHTNING_OUTCOME}" = "success" ] && [ "${RUN_AI_OUTCOME}" != "success" ]; then
+              echo "AI studio run failed: ${RUN_AI_OUTCOME}"
+              rc=1
+            fi
+          fi
+          exit "${rc}"
