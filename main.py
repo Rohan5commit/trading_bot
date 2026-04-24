@@ -469,7 +469,9 @@ class DailyBacktester:
         allowed_idle_cash = min(idle_cash_caps) if idle_cash_caps else 0.0
         cash_drag_excess = available_capital > 0 and cash_pct > max_cash_pct
 
-        if available_slots == 0 or available_capital <= 0:
+        if core_disabled_by_env:
+            target_portfolio = pd.DataFrame()
+        elif available_slots == 0 or available_capital <= 0:
             if available_slots == 0 and cash_drag_excess:
                 logger.warning(
                     "Cash drag %.1f%% exceeds max_cash_pct %.1f%% but no slots are available (max_positions reached).",
@@ -560,73 +562,74 @@ class DailyBacktester:
         new_positions = []
         top_up_positions = []
         remaining_capital = float(available_capital)
-        for _, row in target_portfolio.iterrows():
-            symbol = row['symbol']
-            raw_side = row.get("side", None)
-            if raw_side is None or (isinstance(raw_side, float) and pd.isna(raw_side)):
-                side = "LONG"
-            else:
-                side = str(raw_side).strip().upper() or "LONG"
-            if side not in {"LONG", "SHORT"}:
-                side = "LONG"
+        if not core_disabled_by_env:
+            for _, row in target_portfolio.iterrows():
+                symbol = row['symbol']
+                raw_side = row.get("side", None)
+                if raw_side is None or (isinstance(raw_side, float) and pd.isna(raw_side)):
+                    side = "LONG"
+                else:
+                    side = str(raw_side).strip().upper() or "LONG"
+                if side not in {"LONG", "SHORT"}:
+                    side = "LONG"
 
-            # Get entry price (Day T Open)
-            price_data = pd.read_sql(
-                f"SELECT * FROM prices WHERE symbol='{symbol}' AND date='{test_date.strftime('%Y-%m-%d')}'",
-                conn
-            )
-
-            if not price_data.empty:
-                entry_price = price_data.iloc[0]['open']
-                requested_allocation = max(
-                    0.0, float(row.get('weight', 0.0) or 0.0) * float(available_capital)
+                # Get entry price (Day T Open)
+                price_data = pd.read_sql(
+                    f"SELECT * FROM prices WHERE symbol='{symbol}' AND date='{test_date.strftime('%Y-%m-%d')}'",
+                    conn
                 )
-                allocation_dollars = min(requested_allocation, max(0.0, remaining_capital))
-                if allocation_dollars <= 0.0:
-                    continue
-                if allocation_dollars < min_order_dollars:
-                    logger.info(
-                        "Skipping %s %s entry because allocation %.2f is below minimum order floor %.2f.",
-                        symbol,
-                        side,
-                        allocation_dollars,
-                        min_order_dollars,
+
+                if not price_data.empty:
+                    entry_price = price_data.iloc[0]['open']
+                    requested_allocation = max(
+                        0.0, float(row.get('weight', 0.0) or 0.0) * float(available_capital)
                     )
-                    continue
-                quantity = allocation_dollars / entry_price
-                allocation_pct = (allocation_dollars / current_capital * 100) if current_capital else 0.0
-
-                pos_id = self.core_tracker.open_position(
-                    symbol=symbol,
-                    entry_date=test_date.strftime('%Y-%m-%d'),
-                    entry_price=entry_price,
-                    quantity=quantity,
-                    side=side
-                )
-
-                if pos_id:
-                    reason = "Top-ranked model signal"
-                    if symbol in rank_lookup.index:
-                        info = rank_lookup.loc[symbol]
-                        pred = float(info['predicted_return'])
-                        adj = float(info['adjusted_score'])
-                        penalty = float(info['penalty'])
-                        rank = int(info['rank'])
-                        reason = (
-                            f"Rank {rank} signal (pred {pred:.2%}, adj {adj:.2%}, penalty {penalty:.2f})"
+                    allocation_dollars = min(requested_allocation, max(0.0, remaining_capital))
+                    if allocation_dollars <= 0.0:
+                        continue
+                    if allocation_dollars < min_order_dollars:
+                        logger.info(
+                            "Skipping %s %s entry because allocation %.2f is below minimum order floor %.2f.",
+                            symbol,
+                            side,
+                            allocation_dollars,
+                            min_order_dollars,
                         )
+                        continue
+                    quantity = allocation_dollars / entry_price
+                    allocation_pct = (allocation_dollars / current_capital * 100) if current_capital else 0.0
 
-                    new_positions.append({
-                        'symbol': symbol,
-                        'side': side,
-                        'entry_price': entry_price,
-                        'target_price': entry_price * (1 + tp_pct) if side == "LONG" else entry_price * (1 - tp_pct),
-                        'quantity': quantity,
-                        'allocation_pct': allocation_pct,
-                        'allocation_dollars': allocation_dollars,
-                        'reason': reason
-                    })
-                    remaining_capital = max(0.0, remaining_capital - allocation_dollars)
+                    pos_id = self.core_tracker.open_position(
+                        symbol=symbol,
+                        entry_date=test_date.strftime('%Y-%m-%d'),
+                        entry_price=entry_price,
+                        quantity=quantity,
+                        side=side
+                    )
+
+                    if pos_id:
+                        reason = "Top-ranked model signal"
+                        if symbol in rank_lookup.index:
+                            info = rank_lookup.loc[symbol]
+                            pred = float(info['predicted_return'])
+                            adj = float(info['adjusted_score'])
+                            penalty = float(info['penalty'])
+                            rank = int(info['rank'])
+                            reason = (
+                                f"Rank {rank} signal (pred {pred:.2%}, adj {adj:.2%}, penalty {penalty:.2f})"
+                            )
+
+                        new_positions.append({
+                            'symbol': symbol,
+                            'side': side,
+                            'entry_price': entry_price,
+                            'target_price': entry_price * (1 + tp_pct) if side == "LONG" else entry_price * (1 - tp_pct),
+                            'quantity': quantity,
+                            'allocation_pct': allocation_pct,
+                            'allocation_dollars': allocation_dollars,
+                            'reason': reason
+                        })
+                        remaining_capital = max(0.0, remaining_capital - allocation_dollars)
 
         # If older under-sized positions are occupying slots, scale into the best-held names
         # before leaving excess cash idle.
@@ -640,7 +643,7 @@ class DailyBacktester:
                 min_order_dollars,
             )
             extra_to_deploy = 0.0
-        if extra_to_deploy > 0.0 and max_position_equity_pct > 0.0:
+        if (not core_disabled_by_env) and extra_to_deploy > 0.0 and max_position_equity_pct > 0.0:
             open_positions_for_top_up = self.core_tracker.get_open_positions()
             if open_positions_for_top_up is not None and not open_positions_for_top_up.empty:
                 top_up_df = open_positions_for_top_up.copy()
@@ -861,28 +864,16 @@ class DailyBacktester:
 
         if ai_enabled:
             ai_initial_capital = float(ai_cfg.get("initial_capital", 100000))
-            # Capture pre-close capital for reporting, then close TP positions before
-            # deciding new AI entries so freed slots/cash are usable in the same run.
-            ai_summary_pre_close = self.ai_tracker.get_portfolio_summary()
-            ai_realized_pre_close = float(ai_summary_pre_close.get("total_realized_pnl_dollars", 0.0))
-            ai_capital_pre_close = ai_initial_capital + ai_realized_pre_close
-
-            ai_closed = self.ai_tracker.check_and_close_positions(check_date=test_date.strftime('%Y-%m-%d'))
-
-            ai_summary0 = self.ai_tracker.get_portfolio_summary()
-            ai_realized_total_dollars0 = float(ai_summary0.get("total_realized_pnl_dollars", 0.0))
-            ai_current_capital0 = ai_initial_capital + ai_realized_total_dollars0
-            ai_open_df = self.ai_tracker.get_open_positions()
-            ai_open_symbols = set(ai_open_df["symbol"]) if not ai_open_df.empty else set()
-            ai_invested_cost = (ai_open_df["entry_price"] * ai_open_df["quantity"]).sum() if not ai_open_df.empty else 0.0
-            ai_available_capital = max(0.0, ai_current_capital0 - ai_invested_cost)
-
             ai_max_positions = int(ai_cfg.get("max_positions", 10))
             ai_allow_shorts = bool(ai_cfg.get("allow_shorts", True))
             ai_max_shorts = int(ai_cfg.get("max_shorts", 5))
-            ai_available_slots = max(0, ai_max_positions - len(ai_open_symbols))
+            ai_position_management_mode = str(
+                ai_cfg.get("position_management_mode", "autonomous_rebalance") or "autonomous_rebalance"
+            ).strip().lower()
+            ai_min_trade_dollars = float(
+                ai_cfg.get("min_trade_dollars", trading_cfg.get("min_order_dollars", 500)) or 0.0
+            )
 
-            # AI strategy uses the trained model only. Core rankings remain untouched.
             def _pyfloat(value):
                 try:
                     if pd.isna(value):
@@ -991,22 +982,84 @@ class DailyBacktester:
                     "news_sentiment_7d": float(news_sentiment_7d),
                 }
 
+            def _symbol_set(df_):
+                if df_ is None or not hasattr(df_, "empty") or df_.empty or "symbol" not in df_.columns:
+                    return set()
+                return {
+                    str(symbol).strip().upper()
+                    for symbol in df_["symbol"].tolist()
+                    if str(symbol).strip()
+                }
+
+            def _price_rows_for_date(conn_, symbols_, trade_date_str_):
+                normalized_symbols = [str(sym).strip().upper() for sym in list(symbols_ or []) if str(sym).strip()]
+                if not normalized_symbols:
+                    return {}
+                placeholders = ",".join(["?"] * len(normalized_symbols))
+                df_prices = pd.read_sql(
+                    f"SELECT symbol, date, open, close FROM prices WHERE date=? AND symbol IN ({placeholders})",
+                    conn_,
+                    params=[trade_date_str_] + normalized_symbols,
+                )
+                rows = {}
+                if df_prices.empty:
+                    return rows
+                for _, row in df_prices.iterrows():
+                    symbol = str(row.get("symbol") or "").strip().upper()
+                    if not symbol:
+                        continue
+                    rows[symbol] = {
+                        "date": str(row.get("date") or trade_date_str_),
+                        "open": _pyfloat(row.get("open")),
+                        "close": _pyfloat(row.get("close")),
+                    }
+                return rows
+
+            def _market_exposure_from_open_positions(df_, price_rows_):
+                if df_ is None or not hasattr(df_, "empty") or df_.empty:
+                    return 0.0
+                exposure = 0.0
+                for _, pos in df_.iterrows():
+                    symbol = str(pos.get("symbol") or "").strip().upper()
+                    if not symbol:
+                        continue
+                    price_row = price_rows_.get(symbol) or {}
+                    market_price = _pyfloat(price_row.get("open"))
+                    if market_price is None:
+                        market_price = _pyfloat(price_row.get("close"))
+                    if market_price is None:
+                        market_price = _pyfloat(pos.get("entry_price"))
+                    quantity = _pyfloat(pos.get("quantity")) or 0.0
+                    exposure += max(0.0, float(market_price) * float(quantity))
+                return float(exposure)
+
+            trade_date_str = test_date.strftime('%Y-%m-%d')
+            ai_summary_pre_actions = self.ai_tracker.get_portfolio_summary()
+            ai_realized_pre_actions = float(ai_summary_pre_actions.get("total_realized_pnl_dollars", 0.0))
+            ai_capital_pre_actions = ai_initial_capital + ai_realized_pre_actions
+            ai_open_df_pre = self.ai_tracker.get_open_positions()
+            ai_open_symbols_pre = _symbol_set(ai_open_df_pre)
+            ai_topups = []
+
             universe_symbols = [str(t).strip().upper() for t in universe_df["ticker"].tolist() if str(t).strip()]
-            universe_symbols = [s for s in universe_symbols if s not in ai_open_symbols]
+            priority_symbols = sorted(set(ai_open_symbols_pre))
+            candidate_symbols = [s for s in universe_symbols if s not in ai_open_symbols_pre]
 
             disallow_overlap = bool(ai_cfg.get("disallow_core_overlap", True))
             blocked_by_core = 0
             if disallow_overlap and core_reserved_symbols:
-                before = len(universe_symbols)
-                universe_symbols = [s for s in universe_symbols if s not in core_reserved_symbols]
-                blocked_by_core = before - len(universe_symbols)
+                before_symbols = set(candidate_symbols)
+                candidate_symbols = [s for s in candidate_symbols if s not in core_reserved_symbols]
+                blocked_by_core = len(before_symbols) - len(candidate_symbols)
 
             conn_ai = sqlite3.connect(self.db_path)
             cand = []
+            ai_trades = []
+            price_rows = {}
             try:
                 seed = f"{pd.to_datetime(signal_date).date().isoformat()}-ai"
                 rng = random.Random(seed)
-                rng.shuffle(universe_symbols)
+                rng.shuffle(candidate_symbols)
 
                 prompt_limit_cfg = int(ai_cfg.get("prompt_candidates_limit", 200) or 200)
                 prompt_limit_env_raw = str(os.getenv("AI_PROMPT_CANDIDATES_LIMIT") or "").strip()
@@ -1018,12 +1071,20 @@ class DailyBacktester:
                 else:
                     prompt_limit = prompt_limit_cfg
                 prompt_limit = max(1, prompt_limit)
+                effective_prompt_limit = max(prompt_limit, len(priority_symbols))
                 price_lookback = int(ai_cfg.get("price_lookback_days", 30) or 30)
                 feature_lookback = int(ai_cfg.get("feature_lookback_days", 80) or 80)
                 news_window_days = int(ai_cfg.get("news_window_days", 7) or 7)
 
-                for sym in universe_symbols:
-                    if len(cand) >= max(1, prompt_limit):
+                open_lookup = {}
+                if ai_open_df_pre is not None and hasattr(ai_open_df_pre, "empty") and not ai_open_df_pre.empty:
+                    for _, pos in ai_open_df_pre.iterrows():
+                        symbol = str(pos.get("symbol") or "").strip().upper()
+                        if symbol and symbol not in open_lookup:
+                            open_lookup[symbol] = pos
+
+                for sym in list(priority_symbols) + list(candidate_symbols):
+                    if len(cand) >= max(1, effective_prompt_limit):
                         break
                     snapshot = _recent_price_metrics(conn_ai, sym, lookback=price_lookback)
                     if not snapshot:
@@ -1036,107 +1097,234 @@ class DailyBacktester:
                             news_window_days=news_window_days,
                         )
                     )
+                    current_pos = open_lookup.get(sym)
+                    if current_pos is not None:
+                        snapshot["current_position_side"] = str(current_pos.get("side") or "LONG").upper()
+                        snapshot["current_position_entry"] = _pyfloat(current_pos.get("entry_price"))
+                        snapshot["current_position_qty"] = _pyfloat(current_pos.get("quantity"))
                     snapshot["symbol"] = sym
                     snapshot["as_of_date"] = str(pd.to_datetime(signal_date).date())
                     cand.append(snapshot)
-            finally:
-                conn_ai.close()
 
-            if ai_available_capital <= 0.0 or ai_available_slots <= 0:
-                ai_trades = []
-                ai_llm_status = {
-                    "enabled": True,
-                    "ok": True,
-                    "skipped_reason": "no_capacity",
-                    "error": None,
-                    "model": ((ai_cfg.get("trained_model") or {}).get("base_model") or (ai_cfg.get("trained_model") or {}).get("inference_url")),
-                    "model_used": None,
-                    "disallow_core_overlap": disallow_overlap,
-                    "blocked_by_core": blocked_by_core,
-                    "candidates_built": len(cand),
-                    "available_capital": float(ai_available_capital),
-                    "available_slots": int(ai_available_slots),
-                }
-            else:
                 ai_trades, ai_llm_status = propose_trades_with_llm(
                     self.config,
                     cand,
-                    max_positions=ai_available_slots,
+                    max_positions=ai_max_positions,
                     allow_shorts=ai_allow_shorts,
                     max_shorts=ai_max_shorts,
                 )
+                target_symbols = {
+                    str(trade.get("symbol") or "").strip().upper()
+                    for trade in ai_trades
+                    if str(trade.get("symbol") or "").strip()
+                }
+                execution_symbols = sorted(set(ai_open_symbols_pre) | target_symbols)
+                price_rows = _price_rows_for_date(conn_ai, execution_symbols, trade_date_str)
+            finally:
+                conn_ai.close()
+
+            if isinstance(ai_llm_status, dict):
+                ai_llm_status["manager_mode"] = ai_position_management_mode
+                ai_llm_status["disallow_core_overlap"] = disallow_overlap
+                ai_llm_status["blocked_by_core"] = blocked_by_core
+                ai_llm_status["candidates_built"] = len(cand)
+                ai_llm_status["positions_evaluated"] = len(ai_open_symbols_pre)
+
+            if not (isinstance(ai_llm_status, dict) and ai_llm_status.get("ok")):
+                ai_trades = []
                 if isinstance(ai_llm_status, dict):
-                    ai_llm_status["disallow_core_overlap"] = disallow_overlap
-                    ai_llm_status["blocked_by_core"] = blocked_by_core
-                    ai_llm_status["candidates_built"] = len(cand)
-                # Strict gate: no LLM success -> no new AI entries.
-                if not (isinstance(ai_llm_status, dict) and ai_llm_status.get("ok")):
-                    ai_trades = []
-                    if isinstance(ai_llm_status, dict):
-                        ai_llm_status["entries_blocked_due_to_llm_error"] = True
+                    ai_llm_status["entries_blocked_due_to_llm_error"] = True
+            else:
+                target_map = {
+                    str(trade.get("symbol") or "").strip().upper(): trade
+                    for trade in ai_trades
+                    if str(trade.get("symbol") or "").strip()
+                }
+                current_positions = {}
+                if ai_open_df_pre is not None and hasattr(ai_open_df_pre, "empty") and not ai_open_df_pre.empty:
+                    for _, pos in ai_open_df_pre.iterrows():
+                        symbol = str(pos.get("symbol") or "").strip().upper()
+                        if symbol and symbol not in current_positions:
+                            current_positions[symbol] = pos
 
-            if ai_trades and ai_available_capital > 0:
-                conn_ai = sqlite3.connect(self.db_path)
-                ai_remaining_capital = float(ai_available_capital)
-                for t in ai_trades:
-                    symbol = t["symbol"]
-                    side = str(t.get("side") or "LONG").upper()
-                    weight = float(t.get("weight", 0.0) or 0.0)
-                    requested_allocation = max(0.0, weight * float(ai_available_capital))
-                    allocation_dollars = min(requested_allocation, max(0.0, ai_remaining_capital))
-                    if allocation_dollars <= 0:
+                for symbol, pos in current_positions.items():
+                    current_side = str(pos.get("side") or "LONG").upper()
+                    target = target_map.get(symbol)
+                    exec_row = price_rows.get(symbol) or {}
+                    exec_price = _pyfloat(exec_row.get("open"))
+                    if exec_price is None:
+                        exec_price = _pyfloat(exec_row.get("close"))
+                    if target is None or str(target.get("side") or "LONG").upper() != current_side:
+                        if exec_price is None:
+                            _record_pipeline_issue(
+                                pipeline_stats,
+                                "WARNING",
+                                f"AI Execution:{symbol}",
+                                "Missing execution price for model-driven close; keeping position open.",
+                            )
+                            continue
+                        reason = "AI rotation: symbol removed from target portfolio"
+                        if target is not None:
+                            reason = f"AI rotation: side changed {current_side}->{str(target.get('side') or 'LONG').upper()}"
+                        closed = self.ai_tracker.close_position(
+                            symbol=symbol,
+                            exit_date=trade_date_str,
+                            exit_price=exec_price,
+                            reason=reason,
+                        )
+                        if closed:
+                            ai_closed.append(closed)
+                    else:
+                        self.ai_tracker.update_position_decision(
+                            symbol,
+                            trade_date_str,
+                            decision_label=target.get("label"),
+                            decision_confidence=target.get("confidence"),
+                            decision_reason=target.get("reason"),
+                            target_price=_pyfloat(pos.get("entry_price")),
+                        )
+
+                ai_open_df_live = self.ai_tracker.get_open_positions()
+                live_lookup = {}
+                if ai_open_df_live is not None and hasattr(ai_open_df_live, "empty") and not ai_open_df_live.empty:
+                    for _, pos in ai_open_df_live.iterrows():
+                        symbol = str(pos.get("symbol") or "").strip().upper()
+                        if symbol and symbol not in live_lookup:
+                            live_lookup[symbol] = pos
+
+                ai_summary_live = self.ai_tracker.get_portfolio_summary()
+                ai_realized_live = float(ai_summary_live.get("total_realized_pnl_dollars", 0.0))
+                ai_unrealized_live = float(ai_summary_live.get("total_unrealized_pnl_dollars", 0.0))
+                ai_equity_live = ai_initial_capital + ai_realized_live + ai_unrealized_live
+                ai_market_exposure = _market_exposure_from_open_positions(ai_open_df_live, price_rows)
+                ai_available_capital = max(0.0, ai_equity_live - ai_market_exposure)
+
+                for trade in sorted(ai_trades, key=lambda item: float(item.get("weight", 0.0) or 0.0), reverse=True):
+                    symbol = str(trade.get("symbol") or "").strip().upper()
+                    if not symbol:
+                        continue
+                    side = str(trade.get("side") or "LONG").upper()
+                    exec_row = price_rows.get(symbol) or {}
+                    exec_price = _pyfloat(exec_row.get("open"))
+                    if exec_price is None:
+                        exec_price = _pyfloat(exec_row.get("close"))
+                    if exec_price is None or exec_price <= 0.0:
+                        _record_pipeline_issue(
+                            pipeline_stats,
+                            "WARNING",
+                            f"AI Execution:{symbol}",
+                            "Missing execution price for model-driven entry/top-up.",
+                        )
                         continue
 
-                    price_data = pd.read_sql(
-                        f"SELECT * FROM prices WHERE symbol='{symbol}' AND date='{test_date.strftime('%Y-%m-%d')}'",
-                        conn_ai
-                    )
-                    if price_data.empty:
+                    target_dollars = max(0.0, float(trade.get("weight", 0.0) or 0.0) * ai_equity_live)
+                    existing = live_lookup.get(symbol)
+                    existing_side = str(existing.get("side") or "LONG").upper() if existing is not None else None
+
+                    if existing is not None and existing_side == side:
+                        current_market_value = exec_price * float(existing.get("quantity") or 0.0)
+                        desired_add = max(0.0, target_dollars - current_market_value)
+                        self.ai_tracker.update_position_decision(
+                            symbol,
+                            trade_date_str,
+                            decision_label=trade.get("label"),
+                            decision_confidence=trade.get("confidence"),
+                            decision_reason=trade.get("reason"),
+                            target_price=_pyfloat(existing.get("entry_price")) or exec_price,
+                        )
+                        if desired_add >= ai_min_trade_dollars and ai_available_capital >= ai_min_trade_dollars:
+                            allocation_dollars = min(desired_add, ai_available_capital)
+                            quantity = allocation_dollars / exec_price if exec_price else 0.0
+                            if quantity > 0.0:
+                                added = self.ai_tracker.add_to_position(
+                                    symbol=symbol,
+                                    add_date=trade_date_str,
+                                    add_price=exec_price,
+                                    quantity=quantity,
+                                    side=side,
+                                    target_price=exec_price,
+                                    decision_label=trade.get("label"),
+                                    decision_confidence=trade.get("confidence"),
+                                    decision_reason=trade.get("reason"),
+                                    last_decision_date=trade_date_str,
+                                )
+                                if added:
+                                    ai_topups.append({
+                                        "symbol": symbol,
+                                        "side": side,
+                                        "entry_price": exec_price,
+                                        "target_price": exec_price,
+                                        "quantity": quantity,
+                                        "allocation_pct": (allocation_dollars / ai_equity_live * 100.0) if ai_equity_live else 0.0,
+                                        "allocation_dollars": allocation_dollars,
+                                        "reason": f"AI rebalance top-up: {trade.get('reason') or 'target weight increase'}",
+                                        "decision_confidence": trade.get("confidence"),
+                                        "decision_label": trade.get("label"),
+                                    })
+                                    ai_available_capital = max(0.0, ai_available_capital - allocation_dollars)
                         continue
-                    entry_price = float(price_data.iloc[0]["open"])
-                    quantity = allocation_dollars / entry_price if entry_price else 0.0
-                    if quantity <= 0:
+
+                    allocation_dollars = min(target_dollars, ai_available_capital)
+                    if allocation_dollars < ai_min_trade_dollars:
+                        continue
+                    quantity = allocation_dollars / exec_price if exec_price else 0.0
+                    if quantity <= 0.0:
                         continue
 
                     pos_id = self.ai_tracker.open_position(
                         symbol=symbol,
-                        entry_date=test_date.strftime('%Y-%m-%d'),
-                        entry_price=entry_price,
+                        entry_date=trade_date_str,
+                        entry_price=exec_price,
                         quantity=quantity,
-                        side=side
+                        side=side,
+                        target_price=exec_price,
+                        decision_label=trade.get("label"),
+                        decision_confidence=trade.get("confidence"),
+                        decision_reason=trade.get("reason"),
+                        last_decision_date=trade_date_str,
                     )
                     if pos_id:
                         ai_new.append({
                             "symbol": symbol,
                             "side": side,
-                            "entry_price": entry_price,
-                            "target_price": entry_price * (1 + tp_pct) if side == "LONG" else entry_price * (1 - tp_pct),
+                            "entry_price": exec_price,
+                            "target_price": exec_price,
                             "quantity": quantity,
-                            "allocation_pct": (allocation_dollars / ai_current_capital0 * 100) if ai_current_capital0 else 0.0,
+                            "allocation_pct": (allocation_dollars / ai_equity_live * 100.0) if ai_equity_live else 0.0,
                             "allocation_dollars": allocation_dollars,
-                            "reason": t.get("reason") or "LLM trade",
+                            "reason": trade.get("reason") or "AI target portfolio entry",
+                            "decision_confidence": trade.get("confidence"),
+                            "decision_label": trade.get("label"),
                         })
-                        ai_remaining_capital = max(0.0, ai_remaining_capital - allocation_dollars)
-                conn_ai.close()
+                        ai_available_capital = max(0.0, ai_available_capital - allocation_dollars)
 
             ai_summary = self.ai_tracker.get_portfolio_summary()
             ai_unrealized = self.ai_tracker.get_unrealized_pnl()
             ai_realized_total_dollars = float(ai_summary.get("total_realized_pnl_dollars", 0.0))
             ai_unreal_total_dollars = float(ai_summary.get("total_unrealized_pnl_dollars", 0.0))
             ai_realized_today_dollars = sum([p.get('realized_pnl_dollars', 0.0) for p in ai_closed])
-            ai_realized_today = (ai_realized_today_dollars / ai_capital_pre_close) if ai_capital_pre_close else 0.0
+            ai_realized_today = (ai_realized_today_dollars / ai_capital_pre_actions) if ai_capital_pre_actions else 0.0
 
-            ai_current_capital = ai_initial_capital + ai_realized_total_dollars
-            ai_open_now = self.ai_tracker.get_open_positions()
+            ai_current_capital = ai_initial_capital + ai_realized_total_dollars + ai_unreal_total_dollars
             ai_invested_notional = 0.0
-            if not ai_open_now.empty:
-                ai_invested_notional = float((ai_open_now["entry_price"] * ai_open_now["quantity"]).sum() or 0.0)
+            if ai_unrealized is not None and hasattr(ai_unrealized, "empty") and not ai_unrealized.empty:
+                price_series = pd.to_numeric(ai_unrealized.get("current_price"), errors="coerce").fillna(0.0)
+                quantity_series = pd.to_numeric(ai_unrealized.get("quantity"), errors="coerce").fillna(0.0)
+                ai_invested_notional = float((price_series * quantity_series).sum() or 0.0)
             ai_available_cash = float(ai_current_capital) - ai_invested_notional
+
+            if isinstance(ai_llm_status, dict):
+                ai_llm_status["target_positions"] = len(ai_trades)
+                ai_llm_status["positions_opened"] = len(ai_new)
+                ai_llm_status["positions_closed_by_ai"] = len(ai_closed)
+                ai_llm_status["positions_topped_up"] = len(ai_topups)
 
             ai_report = {
                 "date": test_date.date(),
                 "new_positions_opened": len(ai_new),
+                "positions_topped_up": len(ai_topups),
                 "positions_closed_at_tp": len(ai_closed),
+                "positions_closed_by_ai": len(ai_closed),
                 "open_positions": int(ai_summary.get("open_positions", 0)),
                 "realized_pnl_today": ai_realized_today,
                 "realized_pnl_today_dollars": ai_realized_today_dollars,
@@ -1149,6 +1337,7 @@ class DailyBacktester:
                 "invested_notional": ai_invested_notional,
                 "available_cash": ai_available_cash,
                 "initial_capital": ai_initial_capital,
+                "ai_position_management_mode": ai_position_management_mode,
                 "ai_llm_ok": bool((ai_llm_status or {}).get("ok")) if isinstance(ai_llm_status, dict) else False,
                 "ai_llm_error": str((ai_llm_status or {}).get("error") or "") if isinstance(ai_llm_status, dict) else "",
                 "ai_llm_skipped_reason": str((ai_llm_status or {}).get("skipped_reason") or "") if isinstance(ai_llm_status, dict) else "",
@@ -1207,12 +1396,23 @@ class DailyBacktester:
 
         ai_email_sent = True
         if ai_report is not None:
-            ai_insight = "AI trading engine status: OK" if ai_llm_status.get("ok") else f"AI trading engine status: ERROR - {ai_llm_status.get('error')}"
+            if ai_llm_status.get("ok"):
+                ai_insight = (
+                    "AI trading engine status: OK"
+                    f" | mode={ai_llm_status.get('manager_mode') or 'unknown'}"
+                    f" | target_positions={ai_llm_status.get('target_positions', 0)}"
+                    f" | closed={ai_llm_status.get('positions_closed_by_ai', 0)}"
+                    f" | opened={ai_llm_status.get('positions_opened', 0)}"
+                    f" | topped_up={ai_llm_status.get('positions_topped_up', 0)}"
+                )
+            else:
+                ai_insight = f"AI trading engine status: ERROR - {ai_llm_status.get('error')}"
+            ai_email_positions = list(ai_new) + list(ai_topups)
             ai_email_sent = notifier.send_daily_report(
                 report_data=ai_report,
                 unrealized_df=ai_unrealized,
                 closed_positions=ai_closed,
-                new_positions=ai_new,
+                new_positions=ai_email_positions,
                 meta_insights=ai_insight,
                 signal_rankings=None,
                 pipeline_stats=ai_pipeline_stats,

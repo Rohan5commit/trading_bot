@@ -1,11 +1,8 @@
 """
-Position Tracker - Hold Until Take Profit
+Position tracker for both rule-based and AI-managed strategies.
 
-This module manages open positions:
-1. Opens positions when signals are generated.
-2. Holds positions indefinitely until Take Profit is hit.
-3. Tracks unrealized P&L for open positions.
-4. Records realized P&L when positions are closed.
+Core strategy can still use fixed take-profit exits.
+AI strategy can instead manage positions explicitly with daily model decisions.
 """
 import pandas as pd
 import numpy as np
@@ -81,18 +78,41 @@ class PositionTracker:
         if "side" not in cols:
             cursor.execute(f"ALTER TABLE {self.table_name} ADD COLUMN side TEXT DEFAULT 'LONG'")
             cursor.execute(f"UPDATE {self.table_name} SET side='LONG' WHERE side IS NULL")
-        
+        if "decision_label" not in cols:
+            cursor.execute(f"ALTER TABLE {self.table_name} ADD COLUMN decision_label TEXT")
+        if "decision_confidence" not in cols:
+            cursor.execute(f"ALTER TABLE {self.table_name} ADD COLUMN decision_confidence REAL")
+        if "decision_reason" not in cols:
+            cursor.execute(f"ALTER TABLE {self.table_name} ADD COLUMN decision_reason TEXT")
+        if "last_decision_date" not in cols:
+            cursor.execute(f"ALTER TABLE {self.table_name} ADD COLUMN last_decision_date TEXT")
+        if "exit_reason" not in cols:
+            cursor.execute(f"ALTER TABLE {self.table_name} ADD COLUMN exit_reason TEXT")
+
         conn.commit()
         conn.close()
         logger.info("Position tables initialized.")
 
-    def open_position(self, symbol, entry_date, entry_price, quantity, side="LONG"):
-        """Open a new position"""
+    def open_position(
+        self,
+        symbol,
+        entry_date,
+        entry_price,
+        quantity,
+        side="LONG",
+        target_price=None,
+        decision_label=None,
+        decision_confidence=None,
+        decision_reason=None,
+        last_decision_date=None,
+    ):
+        """Open a new position."""
         side = str(side or "LONG").upper()
         if side not in {"LONG", "SHORT"}:
             raise ValueError(f"Unsupported side: {side}")
 
-        target_price = self._target_price_for_side(entry_price, side)
+        if target_price is None:
+            target_price = self._target_price_for_side(entry_price, side)
         
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
@@ -110,20 +130,58 @@ class PositionTracker:
         
         cursor.execute(
             f"""
-            INSERT INTO {self.table_name} (symbol, side, entry_date, entry_price, quantity, target_price, status)
-            VALUES (?, ?, ?, ?, ?, ?, 'OPEN')
+            INSERT INTO {self.table_name} (
+                symbol,
+                side,
+                entry_date,
+                entry_price,
+                quantity,
+                target_price,
+                status,
+                decision_label,
+                decision_confidence,
+                decision_reason,
+                last_decision_date
+            )
+            VALUES (?, ?, ?, ?, ?, ?, 'OPEN', ?, ?, ?, ?)
             """,
-            (symbol, side, entry_date, entry_price, quantity, target_price)
+            (
+                symbol,
+                side,
+                entry_date,
+                entry_price,
+                quantity,
+                target_price,
+                decision_label,
+                decision_confidence,
+                decision_reason,
+                last_decision_date or entry_date,
+            )
         )
         
         position_id = cursor.lastrowid
         conn.commit()
         conn.close()
         
-        logger.info(f"Opened position #{position_id}: {symbol} {side} @ {entry_price:.2f}, TP @ {target_price:.2f}")
+        if target_price is not None and abs(float(target_price) - float(entry_price)) > 1e-9:
+            logger.info(f"Opened position #{position_id}: {symbol} {side} @ {entry_price:.2f}, TP @ {target_price:.2f}")
+        else:
+            logger.info(f"Opened position #{position_id}: {symbol} {side} @ {entry_price:.2f} (model-managed)")
         return position_id
 
-    def add_to_position(self, symbol, add_date, add_price, quantity, side=None):
+    def add_to_position(
+        self,
+        symbol,
+        add_date,
+        add_price,
+        quantity,
+        side=None,
+        target_price=None,
+        decision_label=None,
+        decision_confidence=None,
+        decision_reason=None,
+        last_decision_date=None,
+    ):
         """Add capital to an existing open position and blend the average entry price."""
         symbol = str(symbol or "").strip().upper()
         if not symbol:
@@ -167,29 +225,50 @@ class PositionTracker:
             return None
 
         blended_entry = ((existing_entry_price * existing_qty) + (add_price * quantity)) / new_qty
-        target_price = self._target_price_for_side(blended_entry, existing_side)
+        if target_price is None:
+            target_price = self._target_price_for_side(blended_entry, existing_side)
 
         cursor.execute(
             f"""
             UPDATE {self.table_name}
-            SET entry_price=?, quantity=?, target_price=?
+            SET entry_price=?, quantity=?, target_price=?, decision_label=?, decision_confidence=?, decision_reason=?, last_decision_date=?
             WHERE id=?
             """,
-            (blended_entry, new_qty, target_price, pos_id),
+            (
+                blended_entry,
+                new_qty,
+                target_price,
+                decision_label,
+                decision_confidence,
+                decision_reason,
+                last_decision_date or add_date,
+                pos_id,
+            ),
         )
         conn.commit()
         conn.close()
 
-        logger.info(
-            "Added to position #%s: %s %s +%.4f @ %.2f, new avg %.2f, TP @ %.2f",
-            pos_id,
-            symbol,
-            existing_side,
-            quantity,
-            add_price,
-            blended_entry,
-            target_price,
-        )
+        if target_price is not None and abs(float(target_price) - float(blended_entry)) > 1e-9:
+            logger.info(
+                "Added to position #%s: %s %s +%.4f @ %.2f, new avg %.2f, TP @ %.2f",
+                pos_id,
+                symbol,
+                existing_side,
+                quantity,
+                add_price,
+                blended_entry,
+                target_price,
+            )
+        else:
+            logger.info(
+                "Added to position #%s: %s %s +%.4f @ %.2f, new avg %.2f (model-managed)",
+                pos_id,
+                symbol,
+                existing_side,
+                quantity,
+                add_price,
+                blended_entry,
+            )
         return {
             "id": pos_id,
             "symbol": symbol,
@@ -199,6 +278,99 @@ class PositionTracker:
             "quantity": new_qty,
             "added_quantity": quantity,
             "target_price": target_price,
+        }
+
+    def update_position_decision(
+        self,
+        symbol,
+        decision_date,
+        decision_label=None,
+        decision_confidence=None,
+        decision_reason=None,
+        target_price=None,
+    ):
+        """Persist the latest AI decision metadata for an open position."""
+        symbol = str(symbol or "").strip().upper()
+        if not symbol:
+            return False
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        current = cursor.execute(
+            f"SELECT target_price FROM {self.table_name} WHERE symbol=? AND status='OPEN'",
+            (symbol,),
+        ).fetchone()
+        if not current:
+            conn.close()
+            return False
+        effective_target = target_price if target_price is not None else current[0]
+        cursor.execute(
+            f"""
+            UPDATE {self.table_name}
+            SET decision_label=?, decision_confidence=?, decision_reason=?, last_decision_date=?, target_price=?
+            WHERE symbol=? AND status='OPEN'
+            """,
+            (
+                decision_label,
+                decision_confidence,
+                decision_reason,
+                decision_date,
+                effective_target,
+                symbol,
+            ),
+        )
+        conn.commit()
+        conn.close()
+        return True
+
+    def close_position(self, symbol, exit_date, exit_price, reason=None):
+        """Close a single open position at the provided execution price."""
+        symbol = str(symbol or "").strip().upper()
+        if not symbol:
+            return None
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        row = cursor.execute(
+            f"SELECT * FROM {self.table_name} WHERE symbol=? AND status='OPEN' ORDER BY id DESC LIMIT 1",
+            (symbol,),
+        ).fetchone()
+        if not row:
+            conn.close()
+            return None
+        cols = [item[1] for item in cursor.execute(f"PRAGMA table_info({self.table_name})").fetchall()]
+        payload = dict(zip(cols, row))
+        entry_price = float(payload.get('entry_price') or 0.0)
+        quantity = float(payload.get('quantity') or 0.0)
+        side = str(payload.get('side') or 'LONG').upper()
+        exit_price = float(exit_price or 0.0)
+        if side == 'SHORT':
+            realized_pnl = (entry_price - exit_price) / entry_price if entry_price else 0.0
+            realized_pnl_dollars = (entry_price - exit_price) * quantity
+        else:
+            realized_pnl = (exit_price - entry_price) / entry_price if entry_price else 0.0
+            realized_pnl_dollars = (exit_price - entry_price) * quantity
+        cursor.execute(
+            f"""
+            UPDATE {self.table_name}
+            SET status='CLOSED', exit_date=?, exit_price=?, realized_pnl=?, exit_reason=?
+            WHERE id=?
+            """,
+            (exit_date, exit_price, realized_pnl, reason, payload['id']),
+        )
+        conn.commit()
+        conn.close()
+        logger.info("CLOSED %s %s @ %.2f - reason=%s - P&L: %.2f%%", symbol, side, exit_price, reason or 'manual_close', realized_pnl * 100.0)
+        return {
+            'symbol': symbol,
+            'side': side,
+            'entry_date': payload.get('entry_date'),
+            'entry_price': entry_price,
+            'exit_price': exit_price,
+            'realized_pnl': realized_pnl,
+            'realized_pnl_dollars': realized_pnl_dollars,
+            'quantity': quantity,
+            'exit_date': exit_date,
+            'target_price': payload.get('target_price'),
+            'reason': reason or 'manual_close',
         }
 
     def check_and_close_positions(self, check_date=None):
@@ -267,10 +439,10 @@ class PositionTracker:
                 cursor.execute(
                     f"""
                     UPDATE {self.table_name}
-                    SET status='CLOSED', exit_date=?, exit_price=?, realized_pnl=?
+                    SET status='CLOSED', exit_date=?, exit_price=?, realized_pnl=?, exit_reason=?
                     WHERE id=?
                     """,
-                    (check_date_actual, exit_price, realized_pnl, pos['id'])
+                    (check_date_actual, exit_price, realized_pnl, reason, pos['id'])
                 )
                 
                 closed.append({
@@ -339,6 +511,10 @@ class PositionTracker:
                 'current_price': current_price,
                 'current_price_date': current_price_date,
                 'target_price': pos['target_price'],
+                'decision_label': pos.get('decision_label'),
+                'decision_confidence': pos.get('decision_confidence'),
+                'decision_reason': pos.get('decision_reason'),
+                'last_decision_date': pos.get('last_decision_date'),
                 'unrealized_pnl': unrealized_pnl,
                 'unrealized_pnl_dollars': unrealized_pnl_dollars,
                 'distance_to_tp': abs(pos['target_price'] - current_price) / current_price if current_price else None

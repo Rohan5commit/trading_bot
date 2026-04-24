@@ -316,6 +316,9 @@ def propose_trades_with_llm(config, candidates, max_positions=10, allow_shorts=T
             "side": row["side"],
             "weight": float(row["weight"]),
             "reason": row["reason"],
+            "label": row.get("label"),
+            "confidence": float(row.get("confidence", 0.0) or 0.0),
+            "score": float(row.get("score", 0.0) or 0.0),
         }
         for row in weighted
     ]

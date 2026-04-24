@@ -122,14 +122,18 @@ ai_trading:
   max_positions: 10
   allow_shorts: true
   max_shorts: 5
-  # Prevent Core + AI from holding the same symbols (keeps the strategies clearly distinct).
-  disallow_core_overlap: true
+  # AI manages the book daily from the trained model output instead of fixed TP/SL exits.
+  position_management_mode: "autonomous_rebalance"
+  # Skip token-sized AI orders while still allowing the model to rotate positions.
+  min_trade_dollars: 500
+  # Let the AI account choose the best symbols independently of the Core account.
+  disallow_core_overlap: false
   # AI selection uses raw prices plus deterministic feature snapshots as model inputs.
   price_lookback_days: 30
   feature_lookback_days: 80
   news_window_days: 7
   prompt_candidates_limit: 1000
-  # Keep idle cash low without hard-clipping exact cash usage.
+  # Keep idle cash low while still letting the model fully rotate the portfolio when conviction changes.
   min_total_weight: 0.96
   # When the model labels a symbol as neutral, allow a directional tie-break
   # if class probabilities still show a close directional edge.

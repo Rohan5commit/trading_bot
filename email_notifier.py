@@ -52,6 +52,35 @@ def _format_quantity(value):
     return f"{qty:.4f}".rstrip("0").rstrip(".")
 
 
+def _ai_autonomous_mode(report_data, pipeline_stats, subject_tag=None):
+    if str(subject_tag or "").strip().upper() != "AI":
+        return False
+    mode = str((report_data or {}).get("ai_position_management_mode") or "").strip().lower()
+    if mode == "autonomous_rebalance":
+        return True
+    if isinstance(pipeline_stats, dict):
+        ai_status = pipeline_stats.get("ai_trading_llm_status")
+        if isinstance(ai_status, dict):
+            return str(ai_status.get("manager_mode") or "").strip().lower() == "autonomous_rebalance"
+    return False
+
+
+def _ai_view_text(row):
+    label = str(row.get("decision_label") or "").strip().upper()
+    confidence = row.get("decision_confidence")
+    reason = str(row.get("decision_reason") or "").strip()
+    label_text = ""
+    if label:
+        label_text = label
+        try:
+            label_text += f" {float(confidence):.2f}"
+        except (TypeError, ValueError):
+            pass
+    if label_text and reason:
+        return f"{label_text} | {reason}"
+    return label_text or reason or "N/A"
+
+
 class EmailNotifier:
     def __init__(self):
         self.smtp_server = os.getenv('SMTP_SERVER', 'smtp.gmail.com')
@@ -241,8 +270,11 @@ class EmailNotifier:
                 blocked = ai_trading_llm_status.get("blocked_by_core")
                 disallow = ai_trading_llm_status.get("disallow_core_overlap")
                 skipped_reason = ai_trading_llm_status.get("skipped_reason")
+                manager_mode = ai_trading_llm_status.get("manager_mode")
                 suffix = f" (model={model})" if model else ""
                 body_lines.append(f"AI Trading LLM: {'OK' if ok else 'ERROR'}{suffix}")
+                if manager_mode:
+                    body_lines.append(f"AI Manager Mode: {manager_mode}")
                 if model_used:
                     body_lines.append(f"AI Model Used: {model_used}")
                 if skipped_reason == "no_capacity":
@@ -252,11 +284,25 @@ class EmailNotifier:
                     slots_txt = str(slots) if slots is not None else "N/A"
                     body_lines.append(f"AI LLM Call: SKIPPED (no available capacity; cash={cap_txt}, slots={slots_txt})")
                 elif skipped_reason == "all_neutral":
-                    body_lines.append("AI LLM Call: COMPLETED (all model signals neutral; no entries)")
+                    body_lines.append("AI LLM Call: COMPLETED (all model signals neutral; portfolio moved to cash)")
                 elif skipped_reason == "no_tradeable_signals":
                     body_lines.append("AI LLM Call: COMPLETED (signals filtered as non-tradeable)")
                 if seen is not None:
                     body_lines.append(f"AI Candidates: {seen}")
+                target_positions = ai_trading_llm_status.get("target_positions")
+                if target_positions is not None:
+                    body_lines.append(f"AI Target Positions: {target_positions}")
+                evaluated_positions = ai_trading_llm_status.get("positions_evaluated")
+                if evaluated_positions is not None:
+                    body_lines.append(f"AI Positions Evaluated: {evaluated_positions}")
+                opened_positions = ai_trading_llm_status.get("positions_opened")
+                closed_positions_count = ai_trading_llm_status.get("positions_closed_by_ai")
+                topped_up_positions = ai_trading_llm_status.get("positions_topped_up")
+                if any(v is not None for v in (opened_positions, closed_positions_count, topped_up_positions)):
+                    body_lines.append(
+                        "AI Portfolio Actions: "
+                        f"opened={_safe_int(opened_positions)}, closed={_safe_int(closed_positions_count)}, topped_up={_safe_int(topped_up_positions)}"
+                    )
                 if disallow is not None:
                     body_lines.append(f"AI Core-Overlap Block: {'ON' if disallow else 'OFF'}")
                 if blocked is not None:
@@ -449,6 +495,8 @@ class EmailNotifier:
                 "",
             ])
 
+        ai_autonomous = _ai_autonomous_mode(report_data, pipeline_stats, subject_tag=subject_tag)
+
         if (not strategies) and new_positions:
             body_lines.extend([
                 "POSITIONS ENTERED TODAY",
@@ -462,18 +510,30 @@ class EmailNotifier:
                 qty = pos.get('quantity', 0)
                 allocation_pct = pos.get('allocation_pct')
                 allocation_dollars = pos.get('allocation_dollars')
-                rows.append([
-                    pos.get('symbol'),
-                    side,
-                    f"{entry_price:.2f}" if entry_price is not None else "N/A",
-                    f"{target_price:.2f}" if target_price is not None else "N/A",
-                    _format_quantity(qty),
-                    f"{allocation_pct:.1f}%" if allocation_pct is not None else "N/A",
-                    f"${allocation_dollars:,.2f}" if allocation_dollars is not None else "N/A",
-                    pos.get('reason') or ""
-                ])
+                if ai_autonomous:
+                    rows.append([
+                        pos.get('symbol'),
+                        side,
+                        f"{entry_price:.2f}" if entry_price is not None else "N/A",
+                        _format_quantity(qty),
+                        f"{allocation_pct:.1f}%" if allocation_pct is not None else "N/A",
+                        f"${allocation_dollars:,.2f}" if allocation_dollars is not None else "N/A",
+                        f"{float(pos.get('decision_confidence', 0.0)):.2f}" if pos.get('decision_confidence') is not None else "N/A",
+                        pos.get('reason') or "",
+                    ])
+                else:
+                    rows.append([
+                        pos.get('symbol'),
+                        side,
+                        f"{entry_price:.2f}" if entry_price is not None else "N/A",
+                        f"{target_price:.2f}" if target_price is not None else "N/A",
+                        _format_quantity(qty),
+                        f"{allocation_pct:.1f}%" if allocation_pct is not None else "N/A",
+                        f"${allocation_dollars:,.2f}" if allocation_dollars is not None else "N/A",
+                        pos.get('reason') or ""
+                    ])
             table = _format_table(
-                ["Symbol", "Side", "Entry", "TP", "Qty", "Alloc %", "Alloc $", "Reason"],
+                ["Symbol", "Side", "Entry", "Qty", "Alloc %", "Alloc $", "Conf", "Reason"] if ai_autonomous else ["Symbol", "Side", "Entry", "TP", "Qty", "Alloc %", "Alloc $", "Reason"],
                 rows
             )
             body_lines.append(table)
@@ -488,7 +548,7 @@ class EmailNotifier:
         
         if (not strategies) and closed_positions:
             body_lines.extend([
-                "POSITIONS CLOSED TODAY (Take Profit Hit)",
+                "POSITIONS CLOSED TODAY" if ai_autonomous else "POSITIONS CLOSED TODAY (Take Profit Hit)",
                 "-" * 40,
             ])
             rows = []
@@ -514,7 +574,7 @@ class EmailNotifier:
             body_lines.append("")
         elif not strategies:
             body_lines.extend([
-                "POSITIONS CLOSED TODAY (Take Profit Hit)",
+                "POSITIONS CLOSED TODAY" if ai_autonomous else "POSITIONS CLOSED TODAY (Take Profit Hit)",
                 "-" * 40,
                 "No positions closed today.",
                 "",
@@ -536,19 +596,32 @@ class EmailNotifier:
                 if dist is None:
                     dist = row.get("dist_to_tp")
                 dist_str = f"{float(dist):.1%}" if dist is not None else "N/A"
-                rows.append([
-                    row.get('symbol'),
-                    row.get('side', 'LONG'),
-                    row.get('entry_date'),
-                    f"{float(row.get('entry_price', 0.0)):.2f}",
-                    f"{row.get('current_price', 0.0):.2f}",
-                    f"{row.get('target_price', 0.0):.2f}",
-                    pnl_str,
-                    f"${pnl_dollars:,.2f}" if pnl_dollars is not None else "N/A",
-                    dist_str,
-                ])
+                if ai_autonomous:
+                    rows.append([
+                        row.get('symbol'),
+                        row.get('side', 'LONG'),
+                        row.get('entry_date'),
+                        f"{float(row.get('entry_price', 0.0)):.2f}",
+                        f"{row.get('current_price', 0.0):.2f}",
+                        row.get('current_price_date') or 'N/A',
+                        pnl_str,
+                        f"${pnl_dollars:,.2f}" if pnl_dollars is not None else "N/A",
+                        _ai_view_text(row),
+                    ])
+                else:
+                    rows.append([
+                        row.get('symbol'),
+                        row.get('side', 'LONG'),
+                        row.get('entry_date'),
+                        f"{float(row.get('entry_price', 0.0)):.2f}",
+                        f"{row.get('current_price', 0.0):.2f}",
+                        f"{row.get('target_price', 0.0):.2f}",
+                        pnl_str,
+                        f"${pnl_dollars:,.2f}" if pnl_dollars is not None else "N/A",
+                        dist_str,
+                    ])
             table = _format_table(
-                ["Symbol", "Side", "Entry Date", "Entry", "Current", "TP", "P&L %", "P&L $", "Dist to TP"],
+                ["Symbol", "Side", "Entry Date", "Entry", "Current", "Px Date", "P&L %", "P&L $", "AI View"] if ai_autonomous else ["Symbol", "Side", "Entry Date", "Entry", "Current", "TP", "P&L %", "P&L $", "Dist to TP"],
                 rows
             )
             body_lines.append(table)
