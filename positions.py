@@ -313,14 +313,16 @@ class PositionTracker:
             
             # Get latest close price
             latest = pd.read_sql(
-                f"SELECT close, date FROM prices WHERE symbol='{symbol}' ORDER BY date DESC LIMIT 1",
-                conn
+                "SELECT close, date FROM prices WHERE symbol=? ORDER BY date DESC LIMIT 1",
+                conn,
+                params=(symbol,),
             )
             
             if latest.empty:
                 continue
                 
             current_price = latest.iloc[0]['close']
+            current_price_date = latest.iloc[0]['date']
             if side == "LONG":
                 unrealized_pnl = (current_price - entry_price) / entry_price
                 unrealized_pnl_dollars = (current_price - entry_price) * pos['quantity']
@@ -335,6 +337,7 @@ class PositionTracker:
                 'entry_price': entry_price,
                 'quantity': pos['quantity'],
                 'current_price': current_price,
+                'current_price_date': current_price_date,
                 'target_price': pos['target_price'],
                 'unrealized_pnl': unrealized_pnl,
                 'unrealized_pnl_dollars': unrealized_pnl_dollars,

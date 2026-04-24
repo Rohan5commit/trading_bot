@@ -45,6 +45,36 @@ def _resolve_path(base_dir, path_value):
     return os.path.join(base_dir, path_value)
 
 
+def _get_open_position_symbols(config_path, table_names=("positions", "positions_ai")):
+    """Return distinct OPEN symbols across the requested position tables."""
+    config = _load_config(config_path)
+    base_dir = os.path.dirname(os.path.abspath(config_path))
+    db_path = _resolve_path(base_dir, config["data"]["cache_path"])
+    ordered = []
+    seen = set()
+    conn = sqlite3.connect(db_path)
+    try:
+        for table_name in table_names:
+            safe_name = str(table_name or "").strip()
+            if safe_name not in {"positions", "positions_ai"}:
+                continue
+            try:
+                rows = conn.execute(
+                    f"SELECT DISTINCT symbol FROM {safe_name} WHERE status='OPEN'"
+                ).fetchall()
+            except sqlite3.OperationalError:
+                rows = []
+            for row in rows:
+                symbol = str((row[0] if row else "") or "").strip().upper()
+                if not symbol or symbol in seen:
+                    continue
+                seen.add(symbol)
+                ordered.append(symbol)
+    finally:
+        conn.close()
+    return ordered
+
+
 def _record_pipeline_issue(pipeline_stats, severity, source, message, max_items=20):
     """Record pipeline warnings/errors in a bounded structure that can be emailed."""
     if not isinstance(pipeline_stats, dict):
@@ -1578,69 +1608,80 @@ def run_daily_job(config_path=None):
             return True
 
     model_manager = ModelManager(config_path)
+    open_position_symbols = _get_open_position_symbols(config_path)
+    ticker_set = set(tickers)
+    held_extra_symbols = [symbol for symbol in open_position_symbols if symbol not in ticker_set]
+    pipeline_stats["held_symbols_refreshed"] = 0
+    pipeline_stats["held_symbols_refresh_failed"] = 0
 
-    # Update prices for all tickers (incremental) without downloading full history repeatedly.
+    resolved_price_source = str(getattr(price_ingestor, "price_source", "stooq") or "stooq").strip().lower()
+    if resolved_price_source == "auto":
+        if price_ingestor.twelvedata_keys.keys():
+            resolved_price_source = "twelvedata"
+        elif price_ingestor.alphavantage_keys.keys():
+            resolved_price_source = "alphavantage"
+        else:
+            resolved_price_source = "stooq"
+
+    def _refresh_symbol_prices(symbol):
+        sym_last = None
+        try:
+            sym_last = price_ingestor.get_latest_date_for_symbol(symbol)
+        except Exception:
+            sym_last = None
+
+        df_prices = None
+        if sym_last is None:
+            # First time: limited window.
+            if resolved_price_source == "twelvedata":
+                df_prices = price_ingestor.fetch_twelvedata_daily(symbol)
+                if df_prices is None or df_prices.empty:
+                    if price_ingestor.alphavantage_keys.keys():
+                        df_prices = price_ingestor.fetch_alphavantage_daily(symbol, outputsize="compact")
+                    if df_prices is None or df_prices.empty:
+                        df_prices = price_ingestor.fetch_stooq_data(symbol)
+            elif resolved_price_source == "alphavantage":
+                df_prices = price_ingestor.fetch_alphavantage_daily(symbol, outputsize="compact")
+                if df_prices is None or df_prices.empty:
+                    df_prices = price_ingestor.fetch_stooq_data(symbol)
+            else:
+                df_prices = price_ingestor.fetch_stooq_data(symbol)
+        else:
+            # Incremental
+            if provider_latest_date and sym_last == provider_latest_date:
+                df_prices = None
+            elif resolved_price_source == "twelvedata":
+                df_prices = price_ingestor.fetch_twelvedata_daily(symbol, outputsize=5)
+                if (df_prices is None or df_prices.empty) and price_ingestor.alphavantage_keys.keys():
+                    df_prices = price_ingestor.fetch_alphavantage_daily(symbol, outputsize="compact")
+                if df_prices is None or df_prices.empty:
+                    df_prices = price_ingestor.fetch_stooq_latest(symbol)
+            elif resolved_price_source == "alphavantage":
+                df_prices = price_ingestor.fetch_alphavantage_daily(symbol, outputsize="compact")
+                if df_prices is None or df_prices.empty:
+                    df_prices = price_ingestor.fetch_stooq_latest(symbol)
+            else:
+                df_prices = price_ingestor.fetch_stooq_latest(symbol)
+
+        if df_prices is not None and not df_prices.empty:
+            conn = sqlite3.connect(price_ingestor.db_path)
+            try:
+                price_ingestor._sqlite_upsert(
+                    type('Table', (), {'name': 'prices'}),
+                    conn,
+                    df_prices.columns.tolist(),
+                    df_prices.values.tolist()
+                )
+            finally:
+                conn.close()
+
+    # Update prices for scan-universe tickers (incremental) without downloading full history repeatedly.
     log_step("Price Ingestion", "Started", f"Processing {len(tickers)} symbols...")
     for t in tickers:
         try:
-            sym_last = None
-            try:
-                sym_last = price_ingestor.get_latest_date_for_symbol(t)
-            except Exception:
-                sym_last = None
-
-            df_prices = None
-            src = str(getattr(price_ingestor, "price_source", "stooq") or "stooq").strip().lower()
-            if src == "auto":
-                if price_ingestor.twelvedata_keys.keys():
-                    src = "twelvedata"
-                elif price_ingestor.alphavantage_keys.keys():
-                    src = "alphavantage"
-                else:
-                    src = "stooq"
-
-            if sym_last is None:
-                # First time: limited window.
-                if src == "twelvedata":
-                    df_prices = price_ingestor.fetch_twelvedata_daily(t)
-                    if df_prices is None or df_prices.empty:
-                        if price_ingestor.alphavantage_keys.keys():
-                            df_prices = price_ingestor.fetch_alphavantage_daily(t, outputsize="compact")
-                        if df_prices is None or df_prices.empty:
-                            df_prices = price_ingestor.fetch_stooq_data(t)
-                elif src == "alphavantage":
-                    df_prices = price_ingestor.fetch_alphavantage_daily(t, outputsize="compact")
-                    if df_prices is None or df_prices.empty:
-                        df_prices = price_ingestor.fetch_stooq_data(t)
-                else:
-                    df_prices = price_ingestor.fetch_stooq_data(t)
-            else:
-                # Incremental
-                if provider_latest_date and sym_last == provider_latest_date:
-                    df_prices = None
-                elif src == "twelvedata":
-                    df_prices = price_ingestor.fetch_twelvedata_daily(t, outputsize=5)
-                    if (df_prices is None or df_prices.empty) and price_ingestor.alphavantage_keys.keys():
-                        df_prices = price_ingestor.fetch_alphavantage_daily(t, outputsize="compact")
-                elif src == "alphavantage":
-                    df_prices = price_ingestor.fetch_alphavantage_daily(t, outputsize="compact")
-                else:
-                    df_prices = price_ingestor.fetch_stooq_latest(t)
-
-            if df_prices is not None and not df_prices.empty:
-                conn = sqlite3.connect(price_ingestor.db_path)
-                try:
-                    price_ingestor._sqlite_upsert(
-                        type('Table', (), {'name': 'prices'}),
-                        conn,
-                        df_prices.columns.tolist(),
-                        df_prices.values.tolist()
-                    )
-                finally:
-                    conn.close()
-            
+            _refresh_symbol_prices(t)
             pipeline_stats['tickers_processed'] += 1
-            
+
             # Train if model is missing or stale
             model_manager.train_ols(t)
 
@@ -1654,6 +1695,60 @@ def run_daily_job(config_path=None):
             continue
 
     log_step("Price Ingestion", "Completed", f"Success: {pipeline_stats['tickers_processed']}, Failed: {pipeline_stats['tickers_failed']}")
+
+    # Always refresh open positions too, even if they were opened from an older/larger universe.
+    # Otherwise the report can silently show stale cached prices for held names that are no longer
+    # in today's scan universe.
+    if held_extra_symbols:
+        log_step(
+            "Held Position Price Refresh",
+            "Started",
+            f"Refreshing {len(held_extra_symbols)} off-universe held symbols...",
+        )
+        for symbol in held_extra_symbols:
+            try:
+                _refresh_symbol_prices(symbol)
+                pipeline_stats["held_symbols_refreshed"] = int(pipeline_stats.get("held_symbols_refreshed", 0) or 0) + 1
+                time.sleep(sleep_s)
+            except Exception as exc:
+                pipeline_stats["held_symbols_refresh_failed"] = int(pipeline_stats.get("held_symbols_refresh_failed", 0) or 0) + 1
+                _record_pipeline_issue(pipeline_stats, "ERROR", f"Held Position Price Refresh:{symbol}", str(exc))
+                continue
+        log_step(
+            "Held Position Price Refresh",
+            "Completed",
+            f"Success: {pipeline_stats['held_symbols_refreshed']}, Failed: {pipeline_stats['held_symbols_refresh_failed']}",
+        )
+    else:
+        log_step("Held Position Price Refresh", "Skipped", "No off-universe held symbols.")
+
+    expected_quote_date = str(provider_latest_date or "") if provider_latest_date else None
+    if open_position_symbols and expected_quote_date:
+        stale_open_quotes = []
+        for symbol in open_position_symbols:
+            sym_latest = None
+            try:
+                sym_latest = price_ingestor.get_latest_date_for_symbol(symbol)
+            except Exception:
+                sym_latest = None
+            if not sym_latest or str(sym_latest) < expected_quote_date:
+                stale_open_quotes.append(f"{symbol}:{sym_latest or 'missing'}")
+        if stale_open_quotes:
+            details = (
+                f"Open-position quotes are stale vs {expected_quote_date}: "
+                + ", ".join(stale_open_quotes[:10])
+            )
+            log_step("Held Position Quote Freshness", "Warning", details)
+        else:
+            log_step(
+                "Held Position Quote Freshness",
+                "Completed",
+                f"All open-position quotes current through {expected_quote_date}",
+            )
+    elif open_position_symbols:
+        log_step("Held Position Quote Freshness", "Skipped", "Provider latest market date unavailable.")
+    else:
+        log_step("Held Position Quote Freshness", "Skipped", "No open positions.")
 
     # News/LLM sentiment only for held symbols (keeps runtime within budget).
     news_enabled = pipeline_stats['news_enabled']
