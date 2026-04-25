@@ -1751,6 +1751,21 @@ def run_daily_job(config_path=None):
 
     universe_df = pd.read_csv(universe_path)
     tickers = [str(t).strip().upper() for t in universe_df['ticker'].tolist() if str(t).strip()]
+    ai_cfg = config.get("ai_trading", {}) if isinstance(config, dict) else {}
+    ai_disabled_by_env = str(os.getenv("DISABLE_AI_TRADING", "")).strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+    ai_enabled = bool(ai_cfg.get("enabled", False)) and not ai_disabled_by_env
+    core_disabled_by_env = str(os.getenv("DISABLE_CORE_TRADING", "")).strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+    skip_core_model_training = bool(core_disabled_by_env and ai_enabled)
 
     price_ingestor = PriceIngestor(config_path)
     providers = (config.get("data", {}).get("providers", {}) or {})
@@ -1898,7 +1913,7 @@ def run_daily_job(config_path=None):
             )
             return True
 
-    model_manager = ModelManager(config_path)
+    model_manager = None if skip_core_model_training else ModelManager(config_path)
     open_position_symbols = _get_open_position_symbols(config_path)
     ticker_set = set(tickers)
     held_extra_symbols = [symbol for symbol in open_position_symbols if symbol not in ticker_set]
@@ -1968,13 +1983,18 @@ def run_daily_job(config_path=None):
 
     # Update prices for scan-universe tickers (incremental) without downloading full history repeatedly.
     log_step("Price Ingestion", "Started", f"Processing {len(tickers)} symbols...")
+    if skip_core_model_training:
+        logger.info(
+            "Core trading disabled; skipping per-ticker OLS retraining during AI-only daily job."
+        )
     for t in tickers:
         try:
             _refresh_symbol_prices(t)
             pipeline_stats['tickers_processed'] += 1
 
             # Train if model is missing or stale
-            model_manager.train_ols(t)
+            if model_manager is not None:
+                model_manager.train_ols(t)
 
             time.sleep(sleep_s)
         except Exception as exc:
