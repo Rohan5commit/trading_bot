@@ -270,10 +270,14 @@ def _build_stop_service_command(port: int) -> str:
     script = "\n".join(
         [
             "set -euo pipefail",
-            f"for pid in $(lsof -ti tcp:{port} 2>/dev/null || true); do kill \"$pid\" 2>/dev/null || true; done",
+            "pids=\"\"",
+            f"if command -v lsof >/dev/null 2>&1; then pids=\"$pids $(lsof -ti tcp:{port} 2>/dev/null || true)\"; fi",
+            f"if command -v pgrep >/dev/null 2>&1; then pids=\"$pids $(pgrep -f 'uvicorn trained_model_service_runtime:app.*--port {port}' || true)\"; fi",
+            "for pid in $(printf '%s\\n' \"$pids\" | tr ' ' '\\n' | awk 'NF' | sort -u); do kill \"$pid\" 2>/dev/null || true; done",
             "sleep 2",
-            f"for pid in $(lsof -ti tcp:{port} 2>/dev/null || true); do kill -9 \"$pid\" 2>/dev/null || true; done",
-            f"lsof -ti tcp:{port} 2>/dev/null || true",
+            "for pid in $(printf '%s\\n' \"$pids\" | tr ' ' '\\n' | awk 'NF' | sort -u); do kill -9 \"$pid\" 2>/dev/null || true; done",
+            f"if command -v lsof >/dev/null 2>&1; then lsof -ti tcp:{port} 2>/dev/null || true; fi",
+            f"if command -v pgrep >/dev/null 2>&1; then pgrep -f 'uvicorn trained_model_service_runtime:app.*--port {port}' || true; fi",
         ]
     )
     return f"bash -lc {shlex.quote(script)}"
