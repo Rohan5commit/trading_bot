@@ -212,6 +212,52 @@ class AutonomousAITest(unittest.TestCase):
         self.assertIn("decision_reason", ai_unrealized.columns)
         self.assertIn("current_price_date", ai_unrealized.columns)
 
+    def test_ai_prefilter_prioritizes_high_conviction_long_and_short_candidates(self):
+        _DummyNotifier.calls = []
+        conn = sqlite3.connect(self.db_path)
+        conn.execute("DELETE FROM positions_ai")
+        conn.commit()
+        conn.close()
+
+        def fake_rankings(self, symbols, signal_date, conn):
+            scores = {"B": 0.10, "D": 0.02, "E": -0.20}
+            return [{"symbol": symbol, "predicted_return": scores[str(symbol).strip().upper()]} for symbol in symbols]
+
+        def fake_ai_decisions(config, candidates, max_positions=10, allow_shorts=True, max_shorts=5):
+            candidate_symbols = [str(item.get("symbol") or "").strip().upper() for item in candidates]
+            self.assertEqual(
+                candidate_symbols,
+                ["B", "E"],
+                "AI CPU prefilter should include top long and strongest short before random tail.",
+            )
+            return (
+                [],
+                {
+                    "ok": True,
+                    "error": None,
+                    "skipped_reason": "no_tradeable_signals",
+                    "model_used": "unit-test-model",
+                    "decision_engine": "trained_model",
+                    "candidates_seen": len(candidates),
+                    "candidates_scored": 0,
+                },
+            )
+
+        with (
+            patch.dict("os.environ", {"DISABLE_CORE_TRADING": "1"}, clear=False),
+            patch("meta_learner.MetaLearner", _DummyMetaLearner),
+            patch("email_notifier.EmailNotifier", _DummyNotifier),
+            patch.object(DailyBacktester, "get_predictions_for_date_bulk", fake_rankings),
+            patch("llm_trader.propose_trades_with_llm", fake_ai_decisions),
+        ):
+            backtester = DailyBacktester(str(self.config_path))
+            report, unrealized, closed_positions, email_sent = backtester.run_daily_test(self.test_date)
+
+        self.assertIsNone(report)
+        self.assertTrue(email_sent)
+        self.assertEqual(len(_DummyNotifier.calls), 1)
+        self.assertEqual(_DummyNotifier.calls[0]["subject_tag"], "AI")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -98,6 +98,7 @@ def _build_daily_command(config, *, service_port: int, reset_ai_positions: bool,
         "TRAINED_MODEL_BATCH_SIZE",
         "TRAINED_MODEL_CLASS_TOKEN_INFERENCE",
         "TRAINED_MODEL_WARMUP_TIMEOUT_SECONDS",
+        "TRAINED_MODEL_CPU_THREADS",
         "DISABLE_CORE_TRADING",
     ]
     for key in passthrough_keys:
@@ -331,6 +332,8 @@ def _wait_for_detached_session_output(
     poll_seconds: int = 15,
 ) -> tuple[str, dict[str, Any] | None]:
     deadline = time.time() + timeout_seconds
+    started_at = time.time()
+    last_heartbeat_at = 0.0
     output = ""
     last_status = None
     while time.time() < deadline:
@@ -340,11 +343,41 @@ def _wait_for_detached_session_output(
             candidate_output = str(status.get("output") or "")
             if candidate_output:
                 output = candidate_output
+            now = time.time()
+            if now - last_heartbeat_at >= max(30, int(poll_seconds or 15) * 2):
+                print(
+                    json.dumps(
+                        {
+                            "studio_session": session_name,
+                            "state": status.get("state"),
+                            "elapsed_seconds": int(now - started_at),
+                            "has_output": bool(candidate_output),
+                            "output_chars": len(candidate_output),
+                            "has_result_markers": RESULT_BEGIN in output and RESULT_END in output,
+                        }
+                    ),
+                    flush=True,
+                )
+                last_heartbeat_at = now
             if RESULT_BEGIN in output and RESULT_END in output:
                 return output, last_status
             if status.get("state") in {"completed", "failed"}:
                 break
         time.sleep(poll_seconds)
+    print(
+        json.dumps(
+            {
+                "studio_session": session_name,
+                "state": last_status.get("state") if isinstance(last_status, dict) else None,
+                "elapsed_seconds": int(time.time() - started_at),
+                "timed_out_waiting_for_result": time.time() >= deadline,
+                "has_output": bool(output),
+                "output_chars": len(output),
+                "has_result_markers": RESULT_BEGIN in output and RESULT_END in output,
+            }
+        ),
+        flush=True,
+    )
     return output, last_status
 
 

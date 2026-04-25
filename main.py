@@ -1033,6 +1033,81 @@ class DailyBacktester:
                     exposure += max(0.0, float(market_price) * float(quantity))
                 return float(exposure)
 
+            def _ranked_ai_candidate_symbols(
+                symbols_,
+                *,
+                rank_df_,
+                prompt_limit_,
+                allow_shorts_,
+                max_shorts_,
+                seed_,
+            ):
+                """
+                Keep the expensive trained-model CPU pass bounded without making
+                candidates random. Price ingestion still scans the full universe;
+                this only orders the subset that gets sent to the trained model.
+                """
+                normalized = []
+                seen = set()
+                for sym in list(symbols_ or []):
+                    symbol = str(sym).strip().upper()
+                    if symbol and symbol not in seen:
+                        seen.add(symbol)
+                        normalized.append(symbol)
+
+                if not normalized:
+                    return []
+
+                prompt_slots = max(1, int(prompt_limit_ or 1))
+                selected = []
+                selected_seen = set()
+
+                def add_symbol(value):
+                    symbol = str(value).strip().upper()
+                    if symbol and symbol in seen and symbol not in selected_seen:
+                        selected_seen.add(symbol)
+                        selected.append(symbol)
+
+                rank_for_ai = pd.DataFrame()
+                if rank_df_ is not None and hasattr(rank_df_, "empty") and not rank_df_.empty:
+                    rank_for_ai = rank_df_.copy()
+                    if "symbol" in rank_for_ai.columns and "adjusted_score" in rank_for_ai.columns:
+                        rank_for_ai["symbol"] = rank_for_ai["symbol"].astype(str).str.strip().str.upper()
+                        rank_for_ai = rank_for_ai[rank_for_ai["symbol"].isin(seen)].copy()
+                        rank_for_ai["adjusted_score"] = pd.to_numeric(
+                            rank_for_ai["adjusted_score"], errors="coerce"
+                        ).fillna(0.0)
+                    else:
+                        rank_for_ai = pd.DataFrame()
+
+                if not rank_for_ai.empty:
+                    short_slots = 0
+                    if bool(allow_shorts_) and int(max_shorts_ or 0) > 0 and prompt_slots > 1:
+                        short_slots = min(
+                            max(1, prompt_slots // 3, int(max_shorts_ or 0) * 2),
+                            max(1, prompt_slots // 2),
+                        )
+                    long_slots = max(0, prompt_slots - short_slots)
+
+                    for symbol in rank_for_ai.sort_values("adjusted_score", ascending=False)["symbol"].head(long_slots):
+                        add_symbol(symbol)
+
+                    if short_slots > 0:
+                        for symbol in rank_for_ai.sort_values("adjusted_score", ascending=True)["symbol"].head(short_slots):
+                            add_symbol(symbol)
+
+                    rank_for_ai["_abs_adjusted_score"] = rank_for_ai["adjusted_score"].abs()
+                    for symbol in rank_for_ai.sort_values("_abs_adjusted_score", ascending=False)["symbol"]:
+                        if len(selected) >= prompt_slots:
+                            break
+                        add_symbol(symbol)
+
+                # Deterministic random tail only fills missing slots after the
+                # ranked high-conviction candidates are included.
+                tail = [sym for sym in normalized if sym not in selected_seen]
+                random.Random(seed_).shuffle(tail)
+                return selected + tail
+
             trade_date_str = test_date.strftime('%Y-%m-%d')
             ai_summary_pre_actions = self.ai_tracker.get_portfolio_summary()
             ai_realized_pre_actions = float(ai_summary_pre_actions.get("total_realized_pnl_dollars", 0.0))
@@ -1058,8 +1133,6 @@ class DailyBacktester:
             price_rows = {}
             try:
                 seed = f"{pd.to_datetime(signal_date).date().isoformat()}-ai"
-                rng = random.Random(seed)
-                rng.shuffle(candidate_symbols)
 
                 prompt_limit_cfg = int(ai_cfg.get("prompt_candidates_limit", 200) or 200)
                 prompt_limit_env_raw = str(os.getenv("AI_PROMPT_CANDIDATES_LIMIT") or "").strip()
@@ -1071,6 +1144,14 @@ class DailyBacktester:
                 else:
                     prompt_limit = prompt_limit_cfg
                 prompt_limit = max(1, prompt_limit)
+                candidate_symbols = _ranked_ai_candidate_symbols(
+                    candidate_symbols,
+                    rank_df_=rank_df,
+                    prompt_limit_=prompt_limit,
+                    allow_shorts_=ai_allow_shorts,
+                    max_shorts_=ai_max_shorts,
+                    seed_=seed,
+                )
                 effective_prompt_limit = max(prompt_limit, len(priority_symbols))
                 price_lookback = int(ai_cfg.get("price_lookback_days", 30) or 30)
                 feature_lookback = int(ai_cfg.get("feature_lookback_days", 80) or 80)

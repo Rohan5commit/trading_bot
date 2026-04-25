@@ -42,7 +42,7 @@ jobs:
       TZ: Asia/Singapore
       TRAINED_MODEL_INFERENCE_URL: ${{ secrets.TRAINED_MODEL_INFERENCE_URL }}
       TRAINED_MODEL_API_KEY: ${{ secrets.TRAINED_MODEL_API_KEY }}
-      TRAINED_MODEL_TIMEOUT_SECONDS: "1200"
+      TRAINED_MODEL_TIMEOUT_SECONDS: "300"
       TRAINED_MODEL_READY_TIMEOUT_SECONDS: "1200"
       TRAINED_MODEL_READY_POLL_SECONDS: "15"
       TRAINED_MODEL_MAX_RETRIES: "0"
@@ -216,7 +216,7 @@ jobs:
           ARM_LIVE_TRADING: ${{ secrets.ARM_LIVE_TRADING }}
           LOG_LEVEL: ${{ secrets.LOG_LEVEL }}
           DISABLE_CORE_TRADING: "1"
-          TRAINED_MODEL_TIMEOUT_SECONDS: "1200"
+          TRAINED_MODEL_TIMEOUT_SECONDS: "300"
           TRAINED_MODEL_READY_TIMEOUT_SECONDS: "1200"
           TRAINED_MODEL_READY_POLL_SECONDS: "15"
           TRAINED_MODEL_MAX_RETRIES: "0"
@@ -224,13 +224,13 @@ jobs:
           TRAINED_MODEL_WARMUP_TIMEOUT_SECONDS: "1800"
           TRAINED_MODEL_CPU_THREADS: "4"
           TRAINED_MODEL_CLASS_TOKEN_INFERENCE: "1"
-          AI_PROMPT_CANDIDATES_LIMIT: "120"
+          AI_PROMPT_CANDIDATES_LIMIT: "40"
         run: |
           python run_daily_job_lightning_studio.py \
             --config quant_platform/configs/lightning_inference_studio.yaml \
             --result-out results/daily_job_lightning_studio.json \
             --session-name trading-bot-ai-daily-job-${{ github.run_id }} \
-            --timeout-seconds 10800
+            --timeout-seconds 5100
 
       - name: Send AI Failure Report
         if: ${{ always() && !(github.event_name == 'workflow_dispatch' && inputs.run_in_lightning_studio) && ((github.event_name != 'workflow_dispatch') || (github.event_name == 'workflow_dispatch' && !inputs.disable_ai_trading)) && (steps.install_lightning_deps.outcome == 'failure' || steps.launch_lightning_inference.outcome == 'failure' || steps.run_ai_bot_in_lightning_studio.outcome == 'failure') }}
@@ -276,7 +276,7 @@ jobs:
           ARM_LIVE_TRADING: ${{ secrets.ARM_LIVE_TRADING }}
           LOG_LEVEL: ${{ secrets.LOG_LEVEL }}
           RESET_AI_POSITIONS: ${{ github.event_name == 'workflow_dispatch' && inputs.reset_ai_positions || 'false' }}
-          TRAINED_MODEL_TIMEOUT_SECONDS: "1200"
+          TRAINED_MODEL_TIMEOUT_SECONDS: "300"
           TRAINED_MODEL_READY_TIMEOUT_SECONDS: "1200"
           TRAINED_MODEL_READY_POLL_SECONDS: "15"
           TRAINED_MODEL_MAX_RETRIES: "0"
@@ -284,7 +284,7 @@ jobs:
           TRAINED_MODEL_WARMUP_TIMEOUT_SECONDS: "1800"
           TRAINED_MODEL_CPU_THREADS: "4"
           TRAINED_MODEL_CLASS_TOKEN_INFERENCE: "1"
-          AI_PROMPT_CANDIDATES_LIMIT: "120"
+          AI_PROMPT_CANDIDATES_LIMIT: "40"
         run: |
           extra_args=""
           if [ "${RESET_AI_POSITIONS}" = "true" ]; then
@@ -294,7 +294,7 @@ jobs:
             --config quant_platform/configs/lightning_inference_studio.yaml \
             --result-out results/daily_job_lightning_studio.json \
             --session-name trading-bot-daily-job-${{ github.run_id }} \
-            --timeout-seconds 10800 \
+            --timeout-seconds 5100 \
             ${extra_args}
 
       - name: Upload artifacts (logs/reports)
