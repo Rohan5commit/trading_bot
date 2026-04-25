@@ -212,6 +212,11 @@ def _request_headers() -> dict[str, str]:
     return headers
 
 
+def _reuse_existing_service_allowed() -> bool:
+    value = str(os.getenv("LIGHTNING_INFERENCE_REUSE_EXISTING_SERVICE") or "").strip().lower()
+    return value in {"1", "true", "yes", "on"}
+
+
 def _wait_for_reachable_health(urls: list[str], *, timeout_seconds: int = 1200) -> tuple[str, dict[str, Any]]:
     deadline = time.time() + timeout_seconds
     last_error = "no candidate Lightning Studio URL responded"
@@ -416,16 +421,19 @@ def main() -> None:
     )
     if args.skip_public_health_check:
         # Fast path: if the local inference service is already healthy, reuse it.
-        print(json.dumps({"launch_phase": "preflight_local_health", "studio_id": studio_id, "port": service_port}), flush=True)
-        local_health = _probe_local_health(
-            client,
-            project.project_id,
-            studio_id,
-            port=service_port,
-            session_name=f"{config.studio_session_name}-preflight-health-{int(time.time())}",
-        )
+        allow_reuse_existing = _reuse_existing_service_allowed()
+        local_health = None
+        if allow_reuse_existing:
+            print(json.dumps({"launch_phase": "preflight_local_health", "studio_id": studio_id, "port": service_port}), flush=True)
+            local_health = _probe_local_health(
+                client,
+                project.project_id,
+                studio_id,
+                port=service_port,
+                session_name=f"{config.studio_session_name}-preflight-health-{int(time.time())}",
+            )
         cleanup = None
-        if local_health and local_health.get("ok") is True:
+        if allow_reuse_existing and local_health and local_health.get("ok") is True:
             launch = {
                 "reused_existing_service": True,
                 "session_name": config.studio_session_name,
