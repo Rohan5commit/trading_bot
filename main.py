@@ -390,13 +390,37 @@ class DailyBacktester:
 
         # Load universe
         universe_df = pd.read_csv(self.universe_path)
+        ai_cfg = self.config.get("ai_trading", {})
+        ai_disabled_by_env = str(os.getenv("DISABLE_AI_TRADING", "")).strip().lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }
+        ai_enabled = bool(ai_cfg.get("enabled", False)) and not ai_disabled_by_env
+        core_disabled_by_env = str(os.getenv("DISABLE_CORE_TRADING", "")).strip().lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }
 
         # Generate rankings using T-1 features
-        rankings = self.get_predictions_for_date_bulk(
-            universe_df["ticker"].tolist(),
-            signal_date,
-            conn,
-        )
+        if core_disabled_by_env and ai_enabled:
+            logger.info(
+                "Core trading disabled; using lightweight momentum rankings for AI candidate prefilter instead of per-ticker core model training."
+            )
+            rankings = self.get_fallback_rankings_for_date_bulk(
+                universe_df["ticker"].tolist(),
+                signal_date,
+                conn,
+            )
+        else:
+            rankings = self.get_predictions_for_date_bulk(
+                universe_df["ticker"].tolist(),
+                signal_date,
+                conn,
+            )
 
         if not rankings:
             logger.warning("No ML predictions generated; falling back to momentum-based rankings.")
@@ -430,12 +454,6 @@ class DailyBacktester:
 
         # Capture Meta-Learner Insights
         meta_insights = meta.get_daily_insights()
-        core_disabled_by_env = str(os.getenv("DISABLE_CORE_TRADING", "")).strip().lower() in {
-            "1",
-            "true",
-            "yes",
-            "on",
-        }
 
         # Determine Current Capital (Compounding)
         initial_capital = 100000
@@ -844,14 +862,6 @@ class DailyBacktester:
         # --- AI strategy (separate $100k account) ---
         from llm_trader import propose_trades_with_llm
 
-        ai_cfg = self.config.get("ai_trading", {})
-        ai_enabled = bool(ai_cfg.get("enabled", False))
-        ai_disabled_by_env = str(os.getenv("DISABLE_AI_TRADING", "")).strip().lower() in {
-            "1",
-            "true",
-            "yes",
-            "on",
-        }
         if ai_disabled_by_env:
             ai_enabled = False
         ai_report = None

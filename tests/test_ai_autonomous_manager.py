@@ -174,7 +174,7 @@ class AutonomousAITest(unittest.TestCase):
             patch.dict("os.environ", {"DISABLE_CORE_TRADING": "1"}, clear=False),
             patch("meta_learner.MetaLearner", _DummyMetaLearner),
             patch("email_notifier.EmailNotifier", _DummyNotifier),
-            patch.object(DailyBacktester, "get_predictions_for_date_bulk", fake_rankings),
+            patch.object(DailyBacktester, "get_fallback_rankings_for_date_bulk", fake_rankings),
             patch("llm_trader.propose_trades_with_llm", fake_ai_decisions),
         ):
             backtester = DailyBacktester(str(self.config_path))
@@ -219,7 +219,10 @@ class AutonomousAITest(unittest.TestCase):
         conn.commit()
         conn.close()
 
-        def fake_rankings(self, symbols, signal_date, conn):
+        def fake_core_rankings(self, symbols, signal_date, conn):
+            raise AssertionError("AI-only run should not build heavyweight core-model rankings.")
+
+        def fake_fallback_rankings(self, symbols, signal_date, conn):
             scores = {"B": 0.10, "D": 0.02, "E": -0.20}
             return [{"symbol": symbol, "predicted_return": scores[str(symbol).strip().upper()]} for symbol in symbols]
 
@@ -247,7 +250,8 @@ class AutonomousAITest(unittest.TestCase):
             patch.dict("os.environ", {"DISABLE_CORE_TRADING": "1"}, clear=False),
             patch("meta_learner.MetaLearner", _DummyMetaLearner),
             patch("email_notifier.EmailNotifier", _DummyNotifier),
-            patch.object(DailyBacktester, "get_predictions_for_date_bulk", fake_rankings),
+            patch.object(DailyBacktester, "get_predictions_for_date_bulk", fake_core_rankings),
+            patch.object(DailyBacktester, "get_fallback_rankings_for_date_bulk", fake_fallback_rankings),
             patch("llm_trader.propose_trades_with_llm", fake_ai_decisions),
         ):
             backtester = DailyBacktester(str(self.config_path))
