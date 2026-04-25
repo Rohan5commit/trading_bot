@@ -33,19 +33,8 @@ data:
     twelvedata:
       base_url: "https://api.twelvedata.com"
       api_key_env: "TWELVEDATA_API_KEYS"
-      # Optional repo-stored fallback keys (comma strings or list items).
-      # Use only for temporary verification; prefer env/secrets in production.
-      api_keys:
-        - "021e027d064b41cd872b79bad752b3b6"
-        - "ed2f87b77cce4d84901d4feeb5ff7136"
-        - "55f7cd89c9ee431da4429cc7e20db498"
-        - "41b31951f98b44e4b72a7a7795be338c"
-        - "e01dcfce3386428eafa524f9c7449f8f"
-        - "555564717f6d45888c13220c0e0070d8"
-        - "238dfc1df34e4150b580057a5ed8c2c9"
-        - "6bb7c6e672a24353bd63ca8223d0390f"
-        - "ef4e515d53ad4f8c9379fcacba77ce65"
-        - "224d71185cd7456996fe97cd05ef2836"
+      # Provider keys must come from env / GitHub secrets, never from tracked config.
+      api_keys: []
       # Only pull a limited window to reduce storage.
       # ~1200 daily bars ~= ~4.5 years trading days. Stays within 50-90MB for S&P 500.
       outputsize: 1200

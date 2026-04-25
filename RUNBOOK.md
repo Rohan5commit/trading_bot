@@ -5,7 +5,9 @@
 - **Dependencies**: `pandas`, `requests`, `pyyaml`, `yfinance`, `python-dotenv`
 - **Email Configuration**: Gmail App Password required in `.env`.
 - **News Sentiment (Optional)**: Local fallback scoring is built in (no external LLM key required).
-- **AI Trading Bot**: Remote trained-model inference endpoint URL in `.env` or GitHub secrets.
+- **AI Trading Bot**:
+  - preferred path: remote trained-model inference endpoint in `.env` or GitHub secrets
+  - fallback path: local distilled manager if the full runtime is unavailable
 
 ## 2. Setup
 1. Move the `trading_bot` folder to your desired location (e.g., home folder).
@@ -18,6 +20,7 @@
 5. AI trading endpoint:
    - `TRAINED_MODEL_INFERENCE_URL` points the AI trading bot at the hosted trained-model service.
    - `TRAINED_MODEL_API_KEY` optionally protects that endpoint.
+   - `TWELVEDATA_API_KEYS` should come from env or GitHub secrets only.
    - Do not commit `.env` (it is gitignored).
 
 ## 3. Daily Workflow
@@ -46,5 +49,6 @@ Note: PineScript translation is a placeholder; set `strategy.type: pine` with a 
 - **No Email**: Verify `SENDER_EMAIL` and `SENDER_PASSWORD` in `.env`.
 - **No Data**: Ensure internet connection is active (Wi-Fi check).
 - **AI Strategy Not Trading**:
-  - If the trained-model endpoint call fails, the run continues but new AI entries are blocked.
-  - Check that `TRAINED_MODEL_INFERENCE_URL` is set and the hosted service is healthy.
+  - If the trained-model endpoint call fails, the workflow should retry via the distilled fallback path.
+  - Check `AI Backend Selected` and `AI Router Reason` in the AI email/report.
+  - Check that `TRAINED_MODEL_INFERENCE_URL` is set and the hosted service is healthy when the full runtime is selected.

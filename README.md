@@ -27,8 +27,8 @@ trading_bot/
 ## Core vs AI
 
 - Core bot remains unchanged in principle: price ingestion, feature generation, OLS ranking, meta-learner, portfolio logic
-- AI trading bot is separate and now uses the trained quant model over HTTP
-- The AI path is batched and designed to call a remote CPU inference endpoint, not a local model
+- AI trading bot is separate and now prefers the trained quant model over HTTP when Lightning full-runtime is available
+- If the full runtime is unavailable or unaffordable, the AI path falls back to a deterministic local distilled manager that reuses the AI memory journal
 
 ## Secrets
 
@@ -47,7 +47,7 @@ trading_bot/
   - Daily root bot workflow
   - Core + AI orchestration
 - `.github/workflows/ai_trading_smoke.yml`
-  - AI-only smoke test against the remote trained-model endpoint
+  - AI-only smoke test against the trained-model path
   - Does not run the core strategy
 - `.github/workflows/deploy_lightning_inference.yml`
   - Deploys the trained-model inference service to Lightning AI
@@ -93,8 +93,10 @@ python run_ai_trading_smoke.py
 
 ## Notes
 
-- The AI bot is remote-only and expects the trained model to be served externally.
-- The current deployment target is Lightning AI CPU.
+- The AI bot is not remote-only anymore:
+  - preferred path: Lightning-hosted trained-model inference
+  - fallback path: local distilled manager with shared AI memory
+- The current preferred deployment target is Lightning AI CPU when project balance allows it.
 - The Lightning inference app can either mount a ready adapter directory or download a `tar.gz` / `.zip` archive via `TRAINED_MODEL_ADAPTER_ARCHIVE_URL`.
 - The core bot and AI bot remain logically separate even though they now live in one combined repo.
 

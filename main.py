@@ -36,7 +36,11 @@ def _get_config_path(config_path=None):
 
 def _load_config(config_path):
     with open(config_path, 'r') as f:
-        return yaml.safe_load(f)
+        payload = yaml.safe_load(f) or {}
+    if isinstance(payload, dict):
+        payload.setdefault("_config_path", os.path.abspath(config_path))
+        payload.setdefault("_config_base_dir", os.path.dirname(os.path.abspath(config_path)))
+    return payload
 
 
 def _resolve_path(base_dir, path_value):

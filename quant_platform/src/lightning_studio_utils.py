@@ -130,15 +130,17 @@ def build_repo_sync_command(config: LightningStudioConfig) -> str:
     repo_path = studio_repo_path(config)
     repo_parent = str(Path(repo_path).parent)
     repo_url = config.studio_repo_url
+    auth_repo_url = repo_url
     repo_ref = config.studio_repo_ref
     quoted_repo_path = shlex.quote(repo_path)
     quoted_repo_parent = shlex.quote(repo_parent)
     quoted_repo_ref = shlex.quote(repo_ref)
 
     if config.studio_repo_url.startswith("https://github.com/") and os.environ.get("GITHUB_TOKEN"):
-        repo_url = config.studio_repo_url.replace("https://github.com/", "https://x-access-token:" + os.environ["GITHUB_TOKEN"] + "@github.com/", 1)
+        auth_repo_url = config.studio_repo_url.replace("https://github.com/", "https://x-access-token:" + os.environ["GITHUB_TOKEN"] + "@github.com/", 1)
 
     quoted_repo_url = shlex.quote(repo_url)
+    quoted_auth_repo_url = shlex.quote(auth_repo_url)
 
     script = "\n".join(
         [
@@ -146,11 +148,13 @@ def build_repo_sync_command(config: LightningStudioConfig) -> str:
             "export GIT_TERMINAL_PROMPT=0",
             f"mkdir -p {quoted_repo_parent}",
             f"if [ -d {quoted_repo_path}/.git ]; then",
-            f"  git -C {quoted_repo_path} remote set-url origin {quoted_repo_url}",
+            f"  git -C {quoted_repo_path} remote set-url origin {quoted_auth_repo_url}",
             f"  git -C {quoted_repo_path} fetch --depth 1 origin {quoted_repo_ref}",
             f"  git -C {quoted_repo_path} reset --hard FETCH_HEAD",
+            f"  git -C {quoted_repo_path} remote set-url origin {quoted_repo_url}",
             "else",
-            f"  git clone --depth 1 --branch {quoted_repo_ref} {quoted_repo_url} {quoted_repo_path}",
+            f"  git clone --depth 1 --branch {quoted_repo_ref} {quoted_auth_repo_url} {quoted_repo_path}",
+            f"  git -C {quoted_repo_path} remote set-url origin {quoted_repo_url}",
             "fi",
         ]
     )

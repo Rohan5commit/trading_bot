@@ -34,9 +34,9 @@ on:
 jobs:
   run-trading-bot:
     runs-on: ubuntu-latest
-    timeout-minutes: 180
+    timeout-minutes: 240
     permissions:
-      contents: write # Needed if we want to commit changes (e.g. database updates, logs)
+      contents: read
 
     env:
       TZ: Asia/Singapore
@@ -47,7 +47,7 @@ jobs:
       TRAINED_MODEL_READY_POLL_SECONDS: "15"
       TRAINED_MODEL_MAX_RETRIES: "0"
       TRAINED_MODEL_BACKOFF_SECONDS: "5"
-      TRAINED_MODEL_BATCH_SIZE: "1"
+      TRAINED_MODEL_BATCH_SIZE: "4"
       LIGHTNING_USERNAME: ${{ secrets.LIGHTNING_USERNAME }}
       LIGHTNING_API_KEY: ${{ secrets.LIGHTNING_API_KEY }}
       LIGHTNING_USER_ID: ${{ secrets.LIGHTNING_USER_ID }}
@@ -255,11 +255,12 @@ jobs:
           DISABLE_CORE_TRADING: "1"
           AI_RUNTIME_MODE: "full"
           AI_ROUTER_REASON: ${{ steps.plan_ai_runtime.outputs.reason }}
+          AI_PROMPT_CANDIDATES_LIMIT: "200"
           TRAINED_MODEL_TIMEOUT_SECONDS: "300"
           TRAINED_MODEL_READY_TIMEOUT_SECONDS: "1200"
           TRAINED_MODEL_READY_POLL_SECONDS: "15"
           TRAINED_MODEL_MAX_RETRIES: "0"
-          TRAINED_MODEL_BATCH_SIZE: "1"
+          TRAINED_MODEL_BATCH_SIZE: "4"
           TRAINED_MODEL_WARMUP_TIMEOUT_SECONDS: "1800"
           TRAINED_MODEL_CPU_THREADS: "8"
           TRAINED_MODEL_CLASS_TOKEN_INFERENCE: "1"
@@ -272,7 +273,7 @@ jobs:
 
       - name: Run AI Trading Bot (Distilled Local Fallback)
         id: run_ai_bot_distilled_local
-        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.run_in_lightning_studio) && ((github.event_name != 'workflow_dispatch') || (github.event_name == 'workflow_dispatch' && !inputs.disable_ai_trading)) && (steps.plan_ai_runtime.outputs.runtime_mode == 'distilled_local' || (steps.plan_ai_runtime.outputs.runtime_mode == 'lightning_full' && (steps.launch_lightning_inference.outcome == 'failure' || steps.run_ai_bot_in_lightning_studio.outcome == 'failure'))) }}
+        if: ${{ steps.install_base_dependencies.outcome == 'success' && !(github.event_name == 'workflow_dispatch' && inputs.run_in_lightning_studio) && ((github.event_name != 'workflow_dispatch') || (github.event_name == 'workflow_dispatch' && !inputs.disable_ai_trading)) && (steps.plan_ai_runtime.outputs.runtime_mode == 'distilled_local' || (steps.plan_ai_runtime.outputs.runtime_mode == 'lightning_full' && (steps.launch_lightning_inference.outcome == 'failure' || steps.run_ai_bot_in_lightning_studio.outcome == 'failure'))) }}
         continue-on-error: true
         timeout-minutes: 60
         env:
@@ -289,6 +290,7 @@ jobs:
           AI_RUNTIME_MODE: "distilled_local"
           AI_ROUTER_REASON: ${{ steps.plan_ai_runtime.outputs.runtime_mode == 'lightning_full' && 'distilled_after_lightning_failure' || steps.plan_ai_runtime.outputs.reason }}
         run: |
+          python quant_platform/scripts/prepare_ai_only_retry.py --results-dir results
           python main.py daily_job
 
       - name: Send AI Failure Report
@@ -339,11 +341,11 @@ jobs:
           TRAINED_MODEL_READY_TIMEOUT_SECONDS: "1200"
           TRAINED_MODEL_READY_POLL_SECONDS: "15"
           TRAINED_MODEL_MAX_RETRIES: "0"
-          TRAINED_MODEL_BATCH_SIZE: "1"
+          TRAINED_MODEL_BATCH_SIZE: "4"
           TRAINED_MODEL_WARMUP_TIMEOUT_SECONDS: "1800"
           TRAINED_MODEL_CPU_THREADS: "4"
           TRAINED_MODEL_CLASS_TOKEN_INFERENCE: "1"
-          AI_PROMPT_CANDIDATES_LIMIT: "40"
+          AI_PROMPT_CANDIDATES_LIMIT: "200"
         run: |
           extra_args=""
           if [ "${RESET_AI_POSITIONS}" = "true" ]; then

@@ -35,7 +35,13 @@ class AIManagerMemory:
         data_cfg = dict(cfg.get("data") or {})
         db_path = str(data_cfg.get("cache_path") or "").strip()
         if db_path and not os.path.isabs(db_path):
-            db_path = os.path.join(os.getcwd(), db_path)
+            base_dir = str(
+                cfg.get("_config_base_dir")
+                or cfg.get("__config_base_dir__")
+                or cfg.get("config_base_dir")
+                or os.getcwd()
+            ).strip()
+            db_path = os.path.join(base_dir, db_path)
         router_cfg = dict((cfg.get("ai_trading") or {}).get("runtime_router") or {})
         resolved_lookback = lookback_days if lookback_days is not None else int(router_cfg.get("memory_lookback_days", 120) or 120)
         return cls(db_path=db_path, lookback_days=resolved_lookback)
