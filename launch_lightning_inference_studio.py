@@ -266,13 +266,16 @@ def _build_local_health_command(port: int) -> str:
     return f"bash -lc {shlex.quote(command)}"
 
 
-def _build_stop_service_command(port: int) -> str:
+def _build_stop_service_command(port: int, session_name: str) -> str:
     script = "\n".join(
         [
             "set -euo pipefail",
+            f"if command -v screen >/dev/null 2>&1; then screen -S {shlex.quote(session_name)} -X quit >/dev/null 2>&1 || true; fi",
             "pids=\"\"",
             f"if command -v lsof >/dev/null 2>&1; then pids=\"$pids $(lsof -ti tcp:{port} 2>/dev/null || true)\"; fi",
             f"if command -v pgrep >/dev/null 2>&1; then pids=\"$pids $(pgrep -f 'uvicorn trained_model_service_runtime:app.*--port {port}' || true)\"; fi",
+            f"if command -v pgrep >/dev/null 2>&1; then pids=\"$pids $(pgrep -f '.session_{session_name}' || true)\"; fi",
+            f"if command -v pgrep >/dev/null 2>&1; then pids=\"$pids $(pgrep -f 'SCREEN -dm -S {session_name}' || true)\"; fi",
             "for pid in $(printf '%s\\n' \"$pids\" | tr ' ' '\\n' | awk 'NF' | sort -u); do kill \"$pid\" 2>/dev/null || true; done",
             "sleep 2",
             "for pid in $(printf '%s\\n' \"$pids\" | tr ' ' '\\n' | awk 'NF' | sort -u); do kill -9 \"$pid\" 2>/dev/null || true; done",
@@ -320,7 +323,7 @@ def _stop_existing_service_processes(client, project_id: str, studio_id: str, *,
         client,
         project_id,
         studio_id,
-        command=_build_stop_service_command(port),
+        command=_build_stop_service_command(port, session_name),
         session_name=session_name,
         detached=False,
         max_attempts=1,
