@@ -2,6 +2,8 @@ import logging
 import os
 import re
 
+from ai_manager_memory import AIManagerMemory
+from distilled_trade_client import DistilledTradeClient
 from trained_model_client import TrainedModelTradeClient
 
 logger = logging.getLogger(__name__)
@@ -170,14 +172,76 @@ def _weights_from_predictions(predictions, min_total_weight=0.90):
     ]
 
 
-def propose_trades_with_llm(config, candidates, max_positions=10, allow_shorts=True, max_shorts=5):
-    """
-    Trained-model-only AI trading path.
-    Returns: (trades:list[dict], status:dict)
-    """
-    ai_cfg = config.get("ai_trading", {}) if isinstance(config, dict) else {}
-    model_cfg = dict(ai_cfg.get("trained_model") or {})
-    client = TrainedModelTradeClient(ai_cfg)
+def _requested_runtime_mode(ai_cfg: dict) -> str:
+    router_cfg = dict((ai_cfg or {}).get("runtime_router") or {})
+    raw = (
+        os.getenv("AI_RUNTIME_MODE")
+        or os.getenv("AI_DECISION_RUNTIME_MODE")
+        or router_cfg.get("mode")
+        or ai_cfg.get("decision_engine")
+        or "auto"
+    )
+    mode = str(raw or "auto").strip().lower()
+    aliases = {
+        "trained_model": "full",
+        "full_model": "full",
+        "http": "full",
+        "distilled": "distilled_local",
+        "distilled_local": "distilled_local",
+        "fallback": "distilled_local",
+        "feature_ensemble": "distilled_local",
+        "auto": "auto",
+        "smart": "auto",
+    }
+    return aliases.get(mode, mode)
+
+
+def _build_clients(config: dict, ai_cfg: dict, manager_memory: AIManagerMemory):
+    requested_mode = _requested_runtime_mode(ai_cfg)
+    full_client = TrainedModelTradeClient(ai_cfg)
+    distilled_client = DistilledTradeClient(config, manager_memory=manager_memory)
+    router_cfg = dict((ai_cfg or {}).get("runtime_router") or {})
+    fallback_on_failure = bool(router_cfg.get("fallback_to_distilled_on_error", True))
+
+    if requested_mode == "distilled_local":
+        return [distilled_client], {
+            "requested_mode": requested_mode,
+            "selected_backend": distilled_client.backend,
+            "router_reason": "forced_distilled_runtime",
+            "fallback_enabled": False,
+        }
+
+    if requested_mode == "full":
+        clients = [full_client]
+        if fallback_on_failure:
+            clients.append(distilled_client)
+        return clients, {
+            "requested_mode": requested_mode,
+            "selected_backend": full_client.backend,
+            "router_reason": "forced_full_runtime",
+            "fallback_enabled": fallback_on_failure,
+        }
+
+    if full_client.is_ready():
+        clients = [full_client]
+        if fallback_on_failure:
+            clients.append(distilled_client)
+        return clients, {
+            "requested_mode": requested_mode,
+            "selected_backend": full_client.backend,
+            "router_reason": "full_model_ready",
+            "fallback_enabled": fallback_on_failure,
+        }
+
+    return [distilled_client], {
+        "requested_mode": requested_mode,
+        "selected_backend": distilled_client.backend,
+        "router_reason": getattr(full_client, "last_error", None) or "full_model_unavailable",
+        "fallback_enabled": False,
+    }
+
+
+def _predict_trades_from_client(client, ai_cfg: dict, prompt_candidates, max_positions=10, allow_shorts=True, max_shorts=5):
     status = {
         "enabled": bool(ai_cfg.get("enabled", False)),
         "ok": False,
@@ -194,8 +258,6 @@ def propose_trades_with_llm(config, candidates, max_positions=10, allow_shorts=T
         status["skipped_reason"] = "no_slots"
         return [], status
 
-    prompt_limit = int(ai_cfg.get("prompt_candidates_limit", 80) or 80)
-    prompt_candidates = _normalize_candidates(candidates, prompt_limit)
     status["candidates_seen"] = len(prompt_candidates)
     if not prompt_candidates:
         status["ok"] = True
@@ -203,9 +265,10 @@ def propose_trades_with_llm(config, candidates, max_positions=10, allow_shorts=T
         return [], status
 
     if not client.is_ready():
-        status["error"] = getattr(client, "last_error", None) or "Trained model is not configured."
+        status["error"] = getattr(client, "last_error", None) or "AI decision backend is not configured."
         return [], status
 
+    model_cfg = dict(ai_cfg.get("trained_model") or {})
     ready_timeout_seconds = int(
         os.getenv("TRAINED_MODEL_READY_TIMEOUT_SECONDS")
         or model_cfg.get("ready_timeout_seconds", 1200)
@@ -265,7 +328,7 @@ def propose_trades_with_llm(config, candidates, max_positions=10, allow_shorts=T
         if breakout_applied:
             reason = (
                 f"{_enforce_english_reason(reason, side)} "
-                "(neutral tie-break from trained-model class probabilities)"
+                "(neutral tie-break from model class probabilities)"
             )
         predictions.append(
             {
@@ -292,7 +355,7 @@ def propose_trades_with_llm(config, candidates, max_positions=10, allow_shorts=T
             status["skipped_reason"] = "all_neutral"
             status["error"] = None
             return [], status
-        status["error"] = getattr(client, "last_error", None) or "No usable trained-model predictions."
+        status["error"] = getattr(client, "last_error", None) or "No usable model predictions."
         return [], status
 
     picked = _pick_predictions(
@@ -326,3 +389,89 @@ def propose_trades_with_llm(config, candidates, max_positions=10, allow_shorts=T
     status["total_weight"] = float(sum(float(t.get("weight", 0.0) or 0.0) for t in trades))
     status["min_total_weight"] = min_total_weight
     return trades, status
+
+
+def propose_trades_with_llm(config, candidates, max_positions=10, allow_shorts=True, max_shorts=5):
+    """Smart AI trading path with shared memory and deterministic fallback."""
+    config = config if isinstance(config, dict) else {}
+    ai_cfg = config.get("ai_trading", {}) if isinstance(config, dict) else {}
+    prompt_limit = int(ai_cfg.get("prompt_candidates_limit", 80) or 80)
+    prompt_candidates = _normalize_candidates(candidates, prompt_limit)
+    manager_memory = AIManagerMemory.from_config(config)
+    manager_context = manager_memory.build_context() if manager_memory.available else {}
+    clients, route_status = _build_clients(config, ai_cfg, manager_memory)
+
+    run_date = None
+    if prompt_candidates:
+        run_date = str(prompt_candidates[0].get("as_of_date") or prompt_candidates[0].get("last_date") or "")
+    if not run_date:
+        run_date = str(os.getenv("TRADING_BOT_RUN_DATE") or "")
+
+    final_trades = []
+    final_status = {
+        "enabled": bool(ai_cfg.get("enabled", False)),
+        "ok": False,
+        "error": "AI routing did not execute.",
+        "decision_engine": ai_cfg.get("decision_engine", "trained_model"),
+        "requested_mode": route_status.get("requested_mode"),
+        "router_reason": route_status.get("router_reason"),
+        "selected_backend": route_status.get("selected_backend"),
+        "shared_memory_enabled": manager_memory.available,
+        "shared_memory_last_backend": manager_context.get("last_backend"),
+        "shared_memory_context": manager_context,
+    }
+
+    for index, client in enumerate(clients):
+        trades, status = _predict_trades_from_client(
+            client,
+            ai_cfg,
+            prompt_candidates,
+            max_positions=max_positions,
+            allow_shorts=allow_shorts,
+            max_shorts=max_shorts,
+        )
+        status["requested_mode"] = route_status.get("requested_mode")
+        status["router_reason"] = route_status.get("router_reason")
+        status["shared_memory_enabled"] = manager_memory.available
+        status["shared_memory_last_backend"] = manager_context.get("last_backend")
+        status["shared_memory_context"] = manager_context
+        status["selected_backend"] = getattr(client, "backend", None)
+        if index > 0:
+            status["fallback_from_backend"] = getattr(clients[0], "backend", None)
+            status["fallback_from_model"] = getattr(clients[0], "model_identifier", None)
+            status["router_reason"] = "fallback_after_full_model_failure"
+
+        manager_memory.record_run(
+            run_date=run_date or "",
+            backend_selected=str(getattr(client, "backend", "") or ""),
+            requested_mode=str(route_status.get("requested_mode") or ""),
+            model_used=str(status.get("model_used") or status.get("model") or client.model_identifier),
+            ok=bool(status.get("ok")),
+            error=status.get("error"),
+            candidates_seen=status.get("candidates_seen"),
+            candidates_scored=status.get("candidates_scored"),
+            target_positions=len(trades),
+            notes={
+                "router_reason": status.get("router_reason"),
+                "skipped_reason": status.get("skipped_reason"),
+                "predictions_seen": status.get("predictions_seen"),
+                "neutral_predictions": status.get("neutral_predictions"),
+            },
+        )
+        if trades:
+            manager_memory.record_trade_plan(
+                run_date=run_date or "",
+                backend_selected=str(getattr(client, "backend", "") or ""),
+                trades=trades,
+                extra={
+                    "model_used": status.get("model_used") or status.get("model"),
+                    "requested_mode": status.get("requested_mode"),
+                },
+            )
+
+        final_trades = trades
+        final_status = status
+        if bool(status.get("ok")):
+            break
+
+    return final_trades, final_status

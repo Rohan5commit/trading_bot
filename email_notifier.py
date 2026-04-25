@@ -272,21 +272,30 @@ class EmailNotifier:
                 skipped_reason = ai_trading_llm_status.get("skipped_reason")
                 manager_mode = ai_trading_llm_status.get("manager_mode")
                 suffix = f" (model={model})" if model else ""
-                body_lines.append(f"AI Trading LLM: {'OK' if ok else 'ERROR'}{suffix}")
+                body_lines.append(f"AI Trading Engine: {'OK' if ok else 'ERROR'}{suffix}")
                 if manager_mode:
                     body_lines.append(f"AI Manager Mode: {manager_mode}")
                 if model_used:
                     body_lines.append(f"AI Model Used: {model_used}")
+                backend_selected = ai_trading_llm_status.get("selected_backend")
+                if backend_selected:
+                    body_lines.append(f"AI Backend Selected: {backend_selected}")
+                router_reason = ai_trading_llm_status.get("router_reason")
+                if router_reason:
+                    body_lines.append(f"AI Router Reason: {router_reason}")
+                memory_backend = ai_trading_llm_status.get("shared_memory_last_backend")
+                if memory_backend:
+                    body_lines.append(f"AI Shared Memory Last Backend: {memory_backend}")
                 if skipped_reason == "no_capacity":
                     cap = ai_trading_llm_status.get("available_capital")
                     slots = ai_trading_llm_status.get("available_slots")
                     cap_txt = f"${float(cap):,.2f}" if isinstance(cap, (int, float)) else "N/A"
                     slots_txt = str(slots) if slots is not None else "N/A"
-                    body_lines.append(f"AI LLM Call: SKIPPED (no available capacity; cash={cap_txt}, slots={slots_txt})")
+                    body_lines.append(f"AI Engine Call: SKIPPED (no available capacity; cash={cap_txt}, slots={slots_txt})")
                 elif skipped_reason == "all_neutral":
-                    body_lines.append("AI LLM Call: COMPLETED (all model signals neutral; portfolio moved to cash)")
+                    body_lines.append("AI Engine Call: COMPLETED (all model signals neutral; portfolio moved to cash)")
                 elif skipped_reason == "no_tradeable_signals":
-                    body_lines.append("AI LLM Call: COMPLETED (signals filtered as non-tradeable)")
+                    body_lines.append("AI Engine Call: COMPLETED (signals filtered as non-tradeable)")
                 if seen is not None:
                     body_lines.append(f"AI Candidates: {seen}")
                 target_positions = ai_trading_llm_status.get("target_positions")
@@ -308,9 +317,9 @@ class EmailNotifier:
                 if blocked is not None:
                     body_lines.append(f"AI Core-Overlap Blocked Symbols: {blocked}")
                 if ai_trading_llm_status.get("entries_blocked_due_to_llm_error"):
-                    body_lines.append("AI Entries: BLOCKED (LLM unavailable/error)")
+                    body_lines.append("AI Entries: BLOCKED (engine unavailable/error)")
                 if (not ok) and err:
-                    body_lines.append(f"AI LLM Error: {err}")
+                    body_lines.append(f"AI Engine Error: {err}")
 
             if isinstance(issues, list) and issues:
                 body_lines.append("")

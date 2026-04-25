@@ -175,14 +175,49 @@ jobs:
         run: |
           python -m pip install "lightning[app]==2.3.2" lightning-cloud==0.5.70
 
+      - name: Plan AI runtime
+        id: plan_ai_runtime
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.run_in_lightning_studio) && ((github.event_name != 'workflow_dispatch') || (github.event_name == 'workflow_dispatch' && !inputs.disable_ai_trading)) }}
+        run: |
+          mkdir -p results
+          if [ "${{ steps.install_lightning_deps.outcome }}" != "success" ]; then
+            {
+              echo "runtime_mode=distilled_local"
+              echo "selected_backend=distilled_local"
+              echo "selected_compute_name="
+              echo "selected_disk_gb=0"
+              echo "reason=lightning_dependencies_unavailable"
+            } >> "$GITHUB_OUTPUT"
+            python - <<'PY'
+            import json
+            from pathlib import Path
+            payload = {
+              "runtime_mode": "distilled_local",
+              "selected_backend": "distilled_local",
+              "selected_compute_name": "",
+              "selected_disk_gb": 0,
+              "reason": "lightning_dependencies_unavailable",
+              "preflight": {"install_lightning_deps_outcome": "failure"},
+            }
+            Path("results/ai_runtime_plan.json").write_text(json.dumps(payload, indent=2) + "\n")
+            print(json.dumps(payload, indent=2))
+            PY
+          else
+            python quant_platform/scripts/plan_ai_runtime.py \
+              --json-out results/ai_runtime_plan.json \
+              --github-output "$GITHUB_OUTPUT"
+          fi
+
       - name: Launch Lightning inference studio
         id: launch_lightning_inference
-        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.run_in_lightning_studio) && ((github.event_name != 'workflow_dispatch') || (github.event_name == 'workflow_dispatch' && !inputs.disable_ai_trading)) && steps.install_lightning_deps.outcome == 'success' }}
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.run_in_lightning_studio) && ((github.event_name != 'workflow_dispatch') || (github.event_name == 'workflow_dispatch' && !inputs.disable_ai_trading)) && steps.plan_ai_runtime.outputs.runtime_mode == 'lightning_full' && steps.install_lightning_deps.outcome == 'success' }}
         continue-on-error: true
         timeout-minutes: 60
         env:
           TRAINED_MODEL_API_KEY: ${{ secrets.TRAINED_MODEL_API_KEY }}
-          TRAINED_MODEL_CPU_THREADS: "4"
+          TRAINED_MODEL_CPU_THREADS: "8"
+          LIGHTNING_INFERENCE_COMPUTE_NAME: ${{ steps.plan_ai_runtime.outputs.selected_compute_name }}
+          LIGHTNING_INFERENCE_DISK_GB: ${{ steps.plan_ai_runtime.outputs.selected_disk_gb }}
         run: |
           python launch_lightning_inference_studio.py \
             --config quant_platform/configs/lightning_inference_studio.yaml \
@@ -202,7 +237,7 @@ jobs:
 
       - name: Run AI Trading Bot in Lightning Studio
         id: run_ai_bot_in_lightning_studio
-        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.run_in_lightning_studio) && ((github.event_name != 'workflow_dispatch') || (github.event_name == 'workflow_dispatch' && !inputs.disable_ai_trading)) && steps.install_lightning_deps.outcome == 'success' && steps.launch_lightning_inference.outcome == 'success' }}
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.run_in_lightning_studio) && ((github.event_name != 'workflow_dispatch') || (github.event_name == 'workflow_dispatch' && !inputs.disable_ai_trading)) && steps.plan_ai_runtime.outputs.runtime_mode == 'lightning_full' && steps.install_lightning_deps.outcome == 'success' && steps.launch_lightning_inference.outcome == 'success' }}
         continue-on-error: true
         timeout-minutes: 90
         env:
@@ -216,15 +251,16 @@ jobs:
           ARM_LIVE_TRADING: ${{ secrets.ARM_LIVE_TRADING }}
           LOG_LEVEL: ${{ secrets.LOG_LEVEL }}
           DISABLE_CORE_TRADING: "1"
+          AI_RUNTIME_MODE: "full"
+          AI_ROUTER_REASON: ${{ steps.plan_ai_runtime.outputs.reason }}
           TRAINED_MODEL_TIMEOUT_SECONDS: "300"
           TRAINED_MODEL_READY_TIMEOUT_SECONDS: "1200"
           TRAINED_MODEL_READY_POLL_SECONDS: "15"
           TRAINED_MODEL_MAX_RETRIES: "0"
           TRAINED_MODEL_BATCH_SIZE: "1"
           TRAINED_MODEL_WARMUP_TIMEOUT_SECONDS: "1800"
-          TRAINED_MODEL_CPU_THREADS: "4"
+          TRAINED_MODEL_CPU_THREADS: "8"
           TRAINED_MODEL_CLASS_TOKEN_INFERENCE: "1"
-          AI_PROMPT_CANDIDATES_LIMIT: "40"
         run: |
           python run_daily_job_lightning_studio.py \
             --config quant_platform/configs/lightning_inference_studio.yaml \
@@ -232,8 +268,29 @@ jobs:
             --session-name trading-bot-ai-daily-job-${{ github.run_id }} \
             --timeout-seconds 5100
 
+      - name: Run AI Trading Bot (Distilled Local Fallback)
+        id: run_ai_bot_distilled_local
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.run_in_lightning_studio) && ((github.event_name != 'workflow_dispatch') || (github.event_name == 'workflow_dispatch' && !inputs.disable_ai_trading)) && (steps.plan_ai_runtime.outputs.runtime_mode == 'distilled_local' || (steps.plan_ai_runtime.outputs.runtime_mode == 'lightning_full' && (steps.launch_lightning_inference.outcome == 'failure' || steps.run_ai_bot_in_lightning_studio.outcome == 'failure'))) }}
+        continue-on-error: true
+        timeout-minutes: 60
+        env:
+          SMTP_SERVER: ${{ secrets.SMTP_SERVER }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SENDER_EMAIL: ${{ secrets.SENDER_EMAIL }}
+          SENDER_PASSWORD: ${{ secrets.SENDER_PASSWORD }}
+          RECIPIENT_EMAIL: ${{ secrets.RECIPIENT_EMAIL }}
+          TRAINED_MODEL_API_KEY: ${{ secrets.TRAINED_MODEL_API_KEY }}
+          TWELVEDATA_API_KEYS: ${{ secrets.TWELVEDATA_API_KEYS }}
+          ARM_LIVE_TRADING: ${{ secrets.ARM_LIVE_TRADING }}
+          LOG_LEVEL: ${{ secrets.LOG_LEVEL }}
+          DISABLE_CORE_TRADING: "1"
+          AI_RUNTIME_MODE: "distilled_local"
+          AI_ROUTER_REASON: ${{ steps.plan_ai_runtime.outputs.runtime_mode == 'lightning_full' && 'distilled_after_lightning_failure' || steps.plan_ai_runtime.outputs.reason }}
+        run: |
+          python main.py daily_job
+
       - name: Send AI Failure Report
-        if: ${{ always() && !(github.event_name == 'workflow_dispatch' && inputs.run_in_lightning_studio) && ((github.event_name != 'workflow_dispatch') || (github.event_name == 'workflow_dispatch' && !inputs.disable_ai_trading)) && (steps.install_lightning_deps.outcome == 'failure' || steps.launch_lightning_inference.outcome == 'failure' || steps.run_ai_bot_in_lightning_studio.outcome == 'failure') }}
+        if: ${{ always() && !(github.event_name == 'workflow_dispatch' && inputs.run_in_lightning_studio) && ((github.event_name != 'workflow_dispatch') || (github.event_name == 'workflow_dispatch' && !inputs.disable_ai_trading)) && (((steps.plan_ai_runtime.outputs.runtime_mode == 'lightning_full') && (steps.launch_lightning_inference.outcome == 'failure' || steps.run_ai_bot_in_lightning_studio.outcome == 'failure') && steps.run_ai_bot_distilled_local.outcome == 'failure') || ((steps.plan_ai_runtime.outputs.runtime_mode == 'distilled_local') && steps.run_ai_bot_distilled_local.outcome == 'failure')) }}
         continue-on-error: true
         env:
           SMTP_SERVER: ${{ secrets.SMTP_SERVER }}
@@ -242,20 +299,20 @@ jobs:
           SENDER_PASSWORD: ${{ secrets.SENDER_PASSWORD }}
           RECIPIENT_EMAIL: ${{ secrets.RECIPIENT_EMAIL }}
           RUN_URL: ${{ format('{0}/{1}/actions/runs/{2}', github.server_url, github.repository, github.run_id) }}
-          INSTALL_LIGHTNING_OUTCOME: ${{ steps.install_lightning_deps.outcome }}
+          AI_RUNTIME_MODE: ${{ steps.plan_ai_runtime.outputs.runtime_mode }}
+          AI_RUNTIME_REASON: ${{ steps.plan_ai_runtime.outputs.reason }}
           LAUNCH_LIGHTNING_OUTCOME: ${{ steps.launch_lightning_inference.outcome }}
-          RUN_AI_OUTCOME: ${{ steps.run_ai_bot_in_lightning_studio.outcome }}
+          RUN_AI_STUDIO_OUTCOME: ${{ steps.run_ai_bot_in_lightning_studio.outcome }}
+          RUN_AI_DISTILLED_OUTCOME: ${{ steps.run_ai_bot_distilled_local.outcome }}
         run: |
-          source_step="Run AI Trading Bot in Lightning Studio"
+          source_step="Run AI Trading Bot"
           detail="AI daily job failed before sending its report email. Run: ${RUN_URL}"
-          if [ "${INSTALL_LIGHTNING_OUTCOME}" != "success" ]; then
-            source_step="Install Lightning dependencies"
-            detail="Lightning dependencies failed before AI execution. Run: ${RUN_URL}"
-          elif [ "${LAUNCH_LIGHTNING_OUTCOME}" != "success" ]; then
-            source_step="Launch Lightning inference studio"
-            detail="Lightning inference studio did not become ready inside the workflow budget. Run: ${RUN_URL}"
-          elif [ "${RUN_AI_OUTCOME}" != "success" ]; then
-            detail="AI daily job failed inside Lightning Studio before sending its report email. Run: ${RUN_URL}"
+          if [ "${AI_RUNTIME_MODE}" = "lightning_full" ]; then
+            source_step="Run AI Trading Bot (Distilled Local Fallback)"
+            detail="AI full-model runtime failed and the distilled fallback also failed. Run: ${RUN_URL}"
+          else
+            source_step="Run AI Trading Bot (Distilled Local Fallback)"
+            detail="AI distilled fallback runtime failed (${AI_RUNTIME_REASON}). Run: ${RUN_URL}"
           fi
           python send_failure_report.py \
             --strategy-tag AI \
@@ -297,6 +354,13 @@ jobs:
             --timeout-seconds 5100 \
             ${extra_args}
 
+      - name: Generate Project Storage Report
+        if: ${{ always() }}
+        continue-on-error: true
+        run: |
+          mkdir -p results
+          python quant_platform/scripts/report_project_storage.py --json-out results/project_storage_report.json
+
       - name: Upload artifacts (logs/reports)
         if: always()
         uses: actions/upload-artifact@v4
@@ -326,8 +390,10 @@ jobs:
           CORE_OUTCOME: ${{ steps.run_core_bot.outcome }}
           AI_EXPECTED: ${{ (github.event_name != 'workflow_dispatch') || (github.event_name == 'workflow_dispatch' && !inputs.disable_ai_trading) }}
           INSTALL_LIGHTNING_OUTCOME: ${{ steps.install_lightning_deps.outcome }}
+          AI_RUNTIME_MODE: ${{ steps.plan_ai_runtime.outputs.runtime_mode }}
           LAUNCH_LIGHTNING_OUTCOME: ${{ steps.launch_lightning_inference.outcome }}
-          RUN_AI_OUTCOME: ${{ steps.run_ai_bot_in_lightning_studio.outcome }}
+          RUN_AI_STUDIO_OUTCOME: ${{ steps.run_ai_bot_in_lightning_studio.outcome }}
+          RUN_AI_DISTILLED_OUTCOME: ${{ steps.run_ai_bot_distilled_local.outcome }}
         run: |
           rc=0
           if [ "${BASE_DEPS_OUTCOME}" != "success" ]; then
@@ -339,17 +405,30 @@ jobs:
             rc=1
           fi
           if [ "${BASE_DEPS_OUTCOME}" = "success" ] && [ "${AI_EXPECTED}" = "true" ]; then
-            if [ "${INSTALL_LIGHTNING_OUTCOME}" != "success" ]; then
-              echo "Lightning dependency install failed: ${INSTALL_LIGHTNING_OUTCOME}"
-              rc=1
-            fi
-            if [ "${LAUNCH_LIGHTNING_OUTCOME}" != "success" ]; then
-              echo "Lightning launch failed: ${LAUNCH_LIGHTNING_OUTCOME}"
-              rc=1
-            fi
-            if [ "${LAUNCH_LIGHTNING_OUTCOME}" = "success" ] && [ "${RUN_AI_OUTCOME}" != "success" ]; then
-              echo "AI studio run failed: ${RUN_AI_OUTCOME}"
-              rc=1
+            if [ "${AI_RUNTIME_MODE}" = "lightning_full" ]; then
+              if [ "${INSTALL_LIGHTNING_OUTCOME}" != "success" ]; then
+                echo "Lightning dependency install failed: ${INSTALL_LIGHTNING_OUTCOME}"
+                if [ "${RUN_AI_DISTILLED_OUTCOME}" != "success" ]; then
+                  rc=1
+                fi
+              fi
+              if [ "${LAUNCH_LIGHTNING_OUTCOME}" != "success" ]; then
+                echo "Lightning launch failed: ${LAUNCH_LIGHTNING_OUTCOME}"
+                if [ "${RUN_AI_DISTILLED_OUTCOME}" != "success" ]; then
+                  rc=1
+                fi
+              fi
+              if [ "${LAUNCH_LIGHTNING_OUTCOME}" = "success" ] && [ "${RUN_AI_STUDIO_OUTCOME}" != "success" ]; then
+                echo "AI studio run failed: ${RUN_AI_STUDIO_OUTCOME}"
+                if [ "${RUN_AI_DISTILLED_OUTCOME}" != "success" ]; then
+                  rc=1
+                fi
+              fi
+            else
+              if [ "${RUN_AI_DISTILLED_OUTCOME}" != "success" ]; then
+                echo "AI distilled fallback run failed: ${RUN_AI_DISTILLED_OUTCOME}"
+                rc=1
+              fi
             fi
           fi
           exit "${rc}"

@@ -141,6 +141,16 @@ ai_trading:
   neutral_breakout_min_prob: 0.22
   neutral_breakout_max_gap: 0.10
   decision_engine: "trained_model"
+  runtime_router:
+    # Auto = try the full trained-model service first when a larger Lightning CPU
+    # is available; otherwise fall back to the local distilled manager.
+    mode: "auto"
+    fallback_to_distilled_on_error: true
+    memory_lookback_days: 120
+    distilled_model_name: "distilled-feature-manager"
+    min_project_balance_for_large_cpu: 5.0
+    preferred_large_compute_name: "cpu-8"
+    preferred_large_disk_gb: 80
   trained_model:
     backend: "http"
     inference_url: ""
