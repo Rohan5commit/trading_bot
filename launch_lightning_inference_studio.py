@@ -362,6 +362,7 @@ def main() -> None:
     existing_payload = _instance_payload(existing)
     existing_phase = str(getattr(existing, "phase", "") or existing_payload.get("phase") or "").strip()
     if args.force_restart_instance and existing_phase == RUNNING_PHASE:
+        print(json.dumps({"launch_phase": "force_restart_instance", "studio_id": studio_id}), flush=True)
         client.cloud_space_service_stop_cloud_space_instance(project_id=project.project_id, id=studio_id)
         _wait_for_instance_phase(
             client,
@@ -376,7 +377,9 @@ def main() -> None:
             timeout_seconds=300,
         )
 
+    print(json.dumps({"launch_phase": "ensure_studio_running", "studio_id": studio_id}), flush=True)
     instance = ensure_studio_running(client, project.project_id, studio, config, timeout_seconds=600)
+    print(json.dumps({"launch_phase": "repo_sync", "studio_id": studio_id}), flush=True)
     repo_sync = _execute_checked(
         client,
         project.project_id,
@@ -385,6 +388,7 @@ def main() -> None:
         session_name=f"{config.studio_session_name}-repo-sync-{int(time.time())}",
         detached=False,
     )
+    print(json.dumps({"launch_phase": "bootstrap", "studio_id": studio_id}), flush=True)
     bootstrap = _execute_checked(
         client,
         project.project_id,
@@ -405,6 +409,7 @@ def main() -> None:
     )
     if args.skip_public_health_check:
         # Fast path: if the local inference service is already healthy, reuse it.
+        print(json.dumps({"launch_phase": "preflight_local_health", "studio_id": studio_id, "port": service_port}), flush=True)
         local_health = _probe_local_health(
             client,
             project.project_id,
@@ -420,6 +425,7 @@ def main() -> None:
             }
             session_status = existing_service_session or {"state": "running"}
         else:
+            print(json.dumps({"launch_phase": "cleanup_existing_service", "studio_id": studio_id, "port": service_port}), flush=True)
             cleanup = _stop_existing_service_processes(
                 client,
                 project.project_id,
@@ -427,6 +433,7 @@ def main() -> None:
                 port=service_port,
                 session_name=f"{config.studio_session_name}-cleanup-{int(time.time())}",
             )
+            print(json.dumps({"launch_phase": "launch_service_session", "studio_id": studio_id, "port": service_port}), flush=True)
             launch, session_status = _launch_service_session(
                 client,
                 project.project_id,
@@ -434,6 +441,7 @@ def main() -> None:
                 command=_build_service_command(config),
                 session_name=config.studio_session_name,
             )
+            print(json.dumps({"launch_phase": "wait_for_local_health", "studio_id": studio_id, "port": service_port}), flush=True)
             local_health = _wait_for_local_health(
                 client,
                 project.project_id,

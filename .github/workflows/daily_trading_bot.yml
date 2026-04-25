@@ -179,7 +179,7 @@ jobs:
         id: launch_lightning_inference
         if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.run_in_lightning_studio) && ((github.event_name != 'workflow_dispatch') || (github.event_name == 'workflow_dispatch' && !inputs.disable_ai_trading)) && steps.install_lightning_deps.outcome == 'success' }}
         continue-on-error: true
-        timeout-minutes: 35
+        timeout-minutes: 60
         env:
           TRAINED_MODEL_API_KEY: ${{ secrets.TRAINED_MODEL_API_KEY }}
           TRAINED_MODEL_CPU_THREADS: "4"
