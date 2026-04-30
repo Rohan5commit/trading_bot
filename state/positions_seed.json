@@ -1,19 +1,6 @@
 {
   "positions": [],
   "positions_ai": [],
-  "legacy_seed_positions": [
-    { "symbol": "BR", "side": "LONG", "entry_date": "2026-02-09" },
-    { "symbol": "ABT", "side": "LONG", "entry_date": "2026-02-09" },
-    { "symbol": "NVDA", "side": "SHORT", "entry_date": "2026-02-09" },
-    { "symbol": "KLAC", "side": "SHORT", "entry_date": "2026-02-09" },
-    { "symbol": "GLW", "side": "SHORT", "entry_date": "2026-02-09" }
-  ],
-  "legacy_seed_positions_ai": [
-    { "symbol": "T", "side": "LONG", "entry_date": "2026-02-09" },
-    { "symbol": "IEX", "side": "LONG", "entry_date": "2026-02-09" },
-    { "symbol": "REG", "side": "LONG", "entry_date": "2026-02-09" },
-    { "symbol": "LUV", "side": "LONG", "entry_date": "2026-02-09" },
-    { "symbol": "AMZN", "side": "SHORT", "entry_date": "2026-02-09" },
-    { "symbol": "CTSH", "side": "SHORT", "entry_date": "2026-02-09" }
-  ]
+  "legacy_seed_positions": [],
+  "legacy_seed_positions_ai": []
 }
