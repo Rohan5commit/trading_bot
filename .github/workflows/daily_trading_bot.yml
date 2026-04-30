@@ -201,7 +201,7 @@ jobs:
             }
             Path("results/ai_runtime_plan.json").write_text(json.dumps(payload, indent=2) + "\n")
             print(json.dumps(payload, indent=2))
-            PY
+PY
           else
             python quant_platform/scripts/plan_ai_runtime.py \
               --json-out results/ai_runtime_plan.json \
