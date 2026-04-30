@@ -188,20 +188,15 @@ jobs:
               echo "selected_disk_gb=0"
               echo "reason=lightning_dependencies_unavailable"
             } >> "$GITHUB_OUTPUT"
-            python - <<'PY'
-            import json
-            from pathlib import Path
-            payload = {
+            echo '{
               "runtime_mode": "distilled_local",
               "selected_backend": "distilled_local",
               "selected_compute_name": "",
               "selected_disk_gb": 0,
               "reason": "lightning_dependencies_unavailable",
-              "preflight": {"install_lightning_deps_outcome": "failure"},
-            }
-            Path("results/ai_runtime_plan.json").write_text(json.dumps(payload, indent=2) + "\n")
-            print(json.dumps(payload, indent=2))
-PY
+              "preflight": {"install_lightning_deps_outcome": "failure"}
+            }' > results/ai_runtime_plan.json
+            cat results/ai_runtime_plan.json
           else
             python quant_platform/scripts/plan_ai_runtime.py \
               --json-out results/ai_runtime_plan.json \
