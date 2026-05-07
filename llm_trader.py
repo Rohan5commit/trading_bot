@@ -309,27 +309,13 @@ def _predict_trades_from_client(client, ai_cfg: dict, prompt_candidates, max_pos
         score = float(prediction.get("score", 0.0) or 0.0)
         confidence = max(0.0, min(1.0, float(prediction.get("confidence", 0.0) or 0.0)))
         reason = prediction.get("reason")
-        breakout_applied = False
         if score == 0.0:
-            breakout = _neutral_breakout_score(prediction, ai_cfg)
-            if breakout is None:
-                neutral_predictions += 1
-                continue
-            score = float(breakout["score"])
-            confidence = float(breakout["confidence"])
-            breakout_applied = True
-            neutral_breakouts += 1
-
-        side = "LONG" if score > 0 else "SHORT"
-        if side == "SHORT" and (not bool(allow_shorts) or int(max_shorts or 0) <= 0):
+            neutral_predictions += 1
             continue
 
+        side = "LONG" if score > 0 else "SHORT"
+
         strength = max(0.01, abs(score) * max(confidence, 0.05))
-        if breakout_applied:
-            reason = (
-                f"{_enforce_english_reason(reason, side)} "
-                "(neutral tie-break from model class probabilities)"
-            )
         predictions.append(
             {
                 "symbol": candidate["symbol"],
@@ -358,20 +344,30 @@ def _predict_trades_from_client(client, ai_cfg: dict, prompt_candidates, max_pos
         status["error"] = getattr(client, "last_error", None) or "No usable model predictions."
         return [], status
 
-    picked = _pick_predictions(
+    picked = sorted(
         predictions,
-        max_positions=max_positions,
-        allow_shorts=allow_shorts,
-        max_shorts=max_shorts,
-    )
+        key=lambda row: (
+            float(row.get("confidence", 0.0) or 0.0),
+            abs(float(row.get("score", 0.0) or 0.0)),
+        ),
+        reverse=True,
+    )[:max_positions]
     if not picked:
         status["ok"] = True
         status["skipped_reason"] = "no_tradeable_signals"
         status["error"] = None
         return [], status
 
-    min_total_weight = float(ai_cfg.get("min_total_weight", 0.90) or 0.90)
-    weighted = _weights_from_predictions(picked, min_total_weight=min_total_weight)
+    model_weight_total = sum(max(0.0, float(row.get("weight", 0.0) or 0.0)) for row in picked)
+    if model_weight_total > 0.0:
+        weighted = [{**row, "weight": max(0.0, float(row.get("weight", 0.0) or 0.0)) / model_weight_total} for row in picked]
+    else:
+        confidence_total = sum(max(0.0, float(row.get("confidence", 0.0) or 0.0)) for row in picked)
+        if confidence_total > 0.0:
+            weighted = [{**row, "weight": max(0.0, float(row.get("confidence", 0.0) or 0.0)) / confidence_total} for row in picked]
+        else:
+            even_weight = 1.0 / float(len(picked))
+            weighted = [{**row, "weight": even_weight} for row in picked]
 
     trades = [
         {
@@ -387,7 +383,7 @@ def _predict_trades_from_client(client, ai_cfg: dict, prompt_candidates, max_pos
     ]
     status["ok"] = True
     status["total_weight"] = float(sum(float(t.get("weight", 0.0) or 0.0) for t in trades))
-    status["min_total_weight"] = min_total_weight
+    status["min_total_weight"] = None
     return trades, status
 
 
