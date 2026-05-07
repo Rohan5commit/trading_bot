@@ -410,7 +410,7 @@ class EmailNotifier:
                     body_lines.append("No open positions.")
             body_lines.append("")
 
-        if meta_insights and not strategies:
+        if meta_insights and not strategies and str(subject_tag or "").strip().upper() == "AI":
             body_lines.extend([
                 "META-LEARNER INSIGHTS",
                 "-" * 40,
@@ -552,11 +552,10 @@ class EmailNotifier:
                         f"{row.get('current_price', 0.0):.2f}",
                         f"{row.get('target_price', 0.0):.2f}",
                         pnl_str,
-                        f"${pnl_dollars:,.2f}" if pnl_dollars is not None else "N/A",
                         dist_str,
                     ])
             table = _format_table(
-                ["Symbol", "Side", "Entry Date", "Entry", "Current", "P&L %"] if ai_autonomous else ["Symbol", "Side", "Entry Date", "Entry", "Current", "TP", "P&L %", "P&L $", "Dist to TP"],
+                ["Symbol", "Side", "Entry Date", "Entry", "Current", "P&L %"] if ai_autonomous else ["Symbol", "Side", "Entry Date", "Entry", "Current", "TP", "P&L %", "Dist to TP"],
                 rows
             )
             body_lines.append(table)
@@ -569,7 +568,7 @@ class EmailNotifier:
                 "",
             ])
 
-        if signal_rankings is not None:
+        if signal_rankings is not None and str(subject_tag or "").strip().upper() == "AI":
             body_lines.extend([
                 "SIGNAL RANKINGS (T-1)",
                 "-" * 40,
