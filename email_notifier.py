@@ -119,6 +119,25 @@ def _manager_style_reason(pos):
     return f"{direction} thesis: {thesis}; conviction={conf_txt}; size={alloc_txt}."
 
 
+def _manager_style_close_reason(pos):
+    """Generate a concise one-line rationale for AI position exits in email output."""
+    if not isinstance(pos, dict):
+        return ""
+    raw_reason = str(pos.get("reason") or "").strip()
+    side = str(pos.get("side") or "LONG").upper()
+    try:
+        pnl_pct = float(pos.get("realized_pnl", 0.0) or 0.0)
+        pnl_txt = f"{pnl_pct:+.2%}"
+    except (TypeError, ValueError):
+        pnl_txt = "N/A"
+    if "AI rotation" in raw_reason:
+        direction = "long" if side == "LONG" else "short"
+        return f"Portfolio rebalance exit: {direction} position rotated out after model target update; realized={pnl_txt}."
+    if raw_reason:
+        return f"Model-driven exit: {raw_reason}; realized={pnl_txt}."
+    return f"Model-driven exit executed; realized={pnl_txt}."
+
+
 class EmailNotifier:
     def __init__(self):
         self.smtp_server = os.getenv('SMTP_SERVER', 'smtp.gmail.com')
@@ -463,7 +482,6 @@ class EmailNotifier:
                     for pos in newp:
                         entry_price = pos.get("entry_price")
                         target_price = pos.get("target_price")
-                        qty = pos.get("quantity", 0)
                         allocation_pct = pos.get("allocation_pct")
                         allocation_dollars = pos.get("allocation_dollars")
                         rows.append([
@@ -471,13 +489,12 @@ class EmailNotifier:
                             pos.get("side", "LONG"),
                             f"{entry_price:.2f}" if isinstance(entry_price, (int, float)) else "N/A",
                             f"{target_price:.2f}" if isinstance(target_price, (int, float)) else "N/A",
-                            _format_quantity(qty),
                             f"{allocation_pct:.1f}%" if allocation_pct is not None else "N/A",
                             f"${allocation_dollars:,.2f}" if allocation_dollars is not None else "N/A",
                             _manager_style_reason(pos),
                         ])
                     body_lines.append(_format_table(
-                        ["Symbol", "Side", "Entry", "TP", "Qty", "Alloc %", "Alloc $", "Reason"],
+                        ["Symbol", "Side", "Entry", "TP", "Alloc %", "Alloc $", "Reason"],
                         rows
                     ))
                 else:
@@ -498,7 +515,7 @@ class EmailNotifier:
                             f"{entry_price:.2f}" if isinstance(entry_price, (int, float)) else "N/A",
                             f"{exit_price:.2f}" if isinstance(exit_price, (int, float)) else "N/A",
                             f"{realized:+.2%}",
-                            pos.get("reason") or "",
+                            _manager_style_close_reason(pos),
                         ])
                     body_lines.append(_format_table(
                         ["Symbol", "Side", "Entry", "Exit", "P&L %", "Reason"],
@@ -554,7 +571,6 @@ class EmailNotifier:
                 side = pos.get("side") or "LONG"
                 entry_price = pos.get('entry_price')
                 target_price = pos.get('target_price')
-                qty = pos.get('quantity', 0)
                 allocation_pct = pos.get('allocation_pct')
                 allocation_dollars = pos.get('allocation_dollars')
                 if ai_autonomous:
@@ -562,7 +578,6 @@ class EmailNotifier:
                         pos.get('symbol'),
                         side,
                         f"{entry_price:.2f}" if entry_price is not None else "N/A",
-                        _format_quantity(qty),
                         f"{allocation_pct:.1f}%" if allocation_pct is not None else "N/A",
                         f"${allocation_dollars:,.2f}" if allocation_dollars is not None else "N/A",
                         f"{float(pos.get('decision_confidence', 0.0)):.2f}" if pos.get('decision_confidence') is not None else "N/A",
@@ -574,13 +589,12 @@ class EmailNotifier:
                         side,
                         f"{entry_price:.2f}" if entry_price is not None else "N/A",
                         f"{target_price:.2f}" if target_price is not None else "N/A",
-                        _format_quantity(qty),
                         f"{allocation_pct:.1f}%" if allocation_pct is not None else "N/A",
                         f"${allocation_dollars:,.2f}" if allocation_dollars is not None else "N/A",
                         pos.get('reason') or ""
                     ])
             table = _format_table(
-                ["Symbol", "Side", "Entry", "Qty", "Alloc %", "Alloc $", "Conf", "Reason"] if ai_autonomous else ["Symbol", "Side", "Entry", "TP", "Qty", "Alloc %", "Alloc $", "Reason"],
+                ["Symbol", "Side", "Entry", "Alloc %", "Alloc $", "Conf", "Reason"] if ai_autonomous else ["Symbol", "Side", "Entry", "TP", "Alloc %", "Alloc $", "Reason"],
                 rows
             )
             body_lines.append(table)
@@ -604,14 +618,14 @@ class EmailNotifier:
                 entry_price = pos.get('entry_price')
                 exit_price = pos.get('exit_price')
                 realized = pos.get('realized_pnl', 0.0)
-                reason = pos.get('reason')
+                reason = _manager_style_close_reason(pos) if ai_autonomous else (pos.get('reason') or "")
                 rows.append([
                     pos.get('symbol'),
                     side,
                     f"{entry_price:.2f}" if entry_price is not None else "N/A",
                     f"{exit_price:.2f}" if exit_price is not None else "N/A",
                     f"{realized:+.2%}",
-                    reason or ""
+                    reason
                 ])
             table = _format_table(
                 ["Symbol", "Side", "Entry", "Exit", "P&L %", "Reason"],
@@ -650,10 +664,7 @@ class EmailNotifier:
                         row.get('entry_date'),
                         f"{float(row.get('entry_price', 0.0)):.2f}",
                         f"{row.get('current_price', 0.0):.2f}",
-                        row.get('current_price_date') or 'N/A',
                         pnl_str,
-                        f"${pnl_dollars:,.2f}" if pnl_dollars is not None else "N/A",
-                        _ai_view_text(row),
                     ])
                 else:
                     rows.append([
@@ -668,7 +679,7 @@ class EmailNotifier:
                         dist_str,
                     ])
             table = _format_table(
-                ["Symbol", "Side", "Entry Date", "Entry", "Current", "Px Date", "P&L %", "P&L $", "AI View"] if ai_autonomous else ["Symbol", "Side", "Entry Date", "Entry", "Current", "TP", "P&L %", "P&L $", "Dist to TP"],
+                ["Symbol", "Side", "Entry Date", "Entry", "Current", "P&L %"] if ai_autonomous else ["Symbol", "Side", "Entry Date", "Entry", "Current", "TP", "P&L %", "P&L $", "Dist to TP"],
                 rows
             )
             body_lines.append(table)
