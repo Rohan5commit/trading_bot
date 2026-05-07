@@ -119,6 +119,25 @@ def _manager_style_reason(pos):
     return f"{direction} thesis: {thesis}; conviction={conf_txt}; size={alloc_txt}."
 
 
+def _manager_style_close_reason(pos):
+    """Generate a concise one-line rationale for AI position exits in email output."""
+    if not isinstance(pos, dict):
+        return ""
+    raw_reason = str(pos.get("reason") or "").strip()
+    side = str(pos.get("side") or "LONG").upper()
+    try:
+        pnl_pct = float(pos.get("realized_pnl", 0.0) or 0.0)
+        pnl_txt = f"{pnl_pct:+.2%}"
+    except (TypeError, ValueError):
+        pnl_txt = "N/A"
+    if "AI rotation" in raw_reason:
+        direction = "long" if side == "LONG" else "short"
+        return f"Portfolio rebalance exit: {direction} position rotated out after model target update; realized={pnl_txt}."
+    if raw_reason:
+        return f"Model-driven exit: {raw_reason}; realized={pnl_txt}."
+    return f"Model-driven exit executed; realized={pnl_txt}."
+
+
 class EmailNotifier:
     def __init__(self):
         self.smtp_server = os.getenv('SMTP_SERVER', 'smtp.gmail.com')
@@ -496,7 +515,7 @@ class EmailNotifier:
                             f"{entry_price:.2f}" if isinstance(entry_price, (int, float)) else "N/A",
                             f"{exit_price:.2f}" if isinstance(exit_price, (int, float)) else "N/A",
                             f"{realized:+.2%}",
-                            pos.get("reason") or "",
+                            _manager_style_close_reason(pos),
                         ])
                     body_lines.append(_format_table(
                         ["Symbol", "Side", "Entry", "Exit", "P&L %", "Reason"],
@@ -599,14 +618,14 @@ class EmailNotifier:
                 entry_price = pos.get('entry_price')
                 exit_price = pos.get('exit_price')
                 realized = pos.get('realized_pnl', 0.0)
-                reason = pos.get('reason')
+                reason = _manager_style_close_reason(pos) if ai_autonomous else (pos.get('reason') or "")
                 rows.append([
                     pos.get('symbol'),
                     side,
                     f"{entry_price:.2f}" if entry_price is not None else "N/A",
                     f"{exit_price:.2f}" if exit_price is not None else "N/A",
                     f"{realized:+.2%}",
-                    reason or ""
+                    reason
                 ])
             table = _format_table(
                 ["Symbol", "Side", "Entry", "Exit", "P&L %", "Reason"],
