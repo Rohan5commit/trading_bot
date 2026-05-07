@@ -114,7 +114,7 @@ ai_trading:
   # AI manages the book daily from the trained model output instead of fixed TP/SL exits.
   position_management_mode: "autonomous_rebalance"
   # Skip token-sized AI orders while still allowing the model to rotate positions.
-  min_trade_dollars: 500
+  min_trade_dollars: 1000
   # Let the AI account choose the best symbols independently of the Core account.
   disallow_core_overlap: false
   # AI selection uses raw prices plus deterministic feature snapshots as model inputs.
@@ -161,7 +161,7 @@ trading:
   enable_shorts: true
   max_shorts: 5
   # Skip token-sized orders; effective minimum is max(min_order_dollars, current_equity * min_order_equity_pct).
-  min_order_dollars: 500
+  min_order_dollars: 1000
   min_order_equity_pct: 0.005
   # adjusted_score <= short_threshold becomes a short candidate (more negative = stronger short)
   short_threshold: -0.002
