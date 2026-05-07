@@ -81,6 +81,44 @@ def _ai_view_text(row):
     return label_text or reason or "N/A"
 
 
+def _manager_style_reason(pos):
+    """Generate a concise one-line rationale for AI entries in email output."""
+    if not isinstance(pos, dict):
+        return ""
+    raw_reason = str(pos.get("reason") or "").strip()
+    if not raw_reason:
+        return ""
+    side = str(pos.get("side") or "LONG").upper()
+    conf = pos.get("decision_confidence", pos.get("confidence"))
+    alloc_pct = pos.get("allocation_pct")
+    try:
+        conf_txt = f"{float(conf):.2f}"
+    except (TypeError, ValueError):
+        conf_txt = "N/A"
+    try:
+        alloc_txt = f"{float(alloc_pct):.1f}%"
+    except (TypeError, ValueError):
+        alloc_txt = "N/A"
+
+    tokens = []
+    low = raw_reason.lower()
+    if "momentum" in low:
+        tokens.append("momentum continuation")
+    if "trend" in low:
+        tokens.append("trend persistence")
+    if "volume" in low:
+        tokens.append("volume confirmation")
+    if "rsi" in low:
+        tokens.append("RSI regime support")
+    if "feature balance" in low:
+        tokens.append("cross-factor alignment")
+    if not tokens:
+        tokens.append("multi-factor model signal")
+    thesis = ", ".join(tokens[:3])
+    direction = "Upside" if side == "LONG" else "Downside"
+    return f"{direction} thesis: {thesis}; conviction={conf_txt}; size={alloc_txt}."
+
+
 class EmailNotifier:
     def __init__(self):
         self.smtp_server = os.getenv('SMTP_SERVER', 'smtp.gmail.com')
@@ -436,7 +474,7 @@ class EmailNotifier:
                             _format_quantity(qty),
                             f"{allocation_pct:.1f}%" if allocation_pct is not None else "N/A",
                             f"${allocation_dollars:,.2f}" if allocation_dollars is not None else "N/A",
-                            pos.get("reason") or "",
+                            _manager_style_reason(pos),
                         ])
                     body_lines.append(_format_table(
                         ["Symbol", "Side", "Entry", "TP", "Qty", "Alloc %", "Alloc $", "Reason"],
@@ -528,7 +566,7 @@ class EmailNotifier:
                         f"{allocation_pct:.1f}%" if allocation_pct is not None else "N/A",
                         f"${allocation_dollars:,.2f}" if allocation_dollars is not None else "N/A",
                         f"{float(pos.get('decision_confidence', 0.0)):.2f}" if pos.get('decision_confidence') is not None else "N/A",
-                        pos.get('reason') or "",
+                        _manager_style_reason(pos),
                     ])
                 else:
                     rows.append([
