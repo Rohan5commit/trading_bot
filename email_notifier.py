@@ -664,10 +664,7 @@ class EmailNotifier:
                         row.get('entry_date'),
                         f"{float(row.get('entry_price', 0.0)):.2f}",
                         f"{row.get('current_price', 0.0):.2f}",
-                        row.get('current_price_date') or 'N/A',
                         pnl_str,
-                        f"${pnl_dollars:,.2f}" if pnl_dollars is not None else "N/A",
-                        _ai_view_text(row),
                     ])
                 else:
                     rows.append([
@@ -682,7 +679,7 @@ class EmailNotifier:
                         dist_str,
                     ])
             table = _format_table(
-                ["Symbol", "Side", "Entry Date", "Entry", "Current", "Px Date", "P&L %", "P&L $", "AI View"] if ai_autonomous else ["Symbol", "Side", "Entry Date", "Entry", "Current", "TP", "P&L %", "P&L $", "Dist to TP"],
+                ["Symbol", "Side", "Entry Date", "Entry", "Current", "P&L %"] if ai_autonomous else ["Symbol", "Side", "Entry Date", "Entry", "Current", "TP", "P&L %", "P&L $", "Dist to TP"],
                 rows
             )
             body_lines.append(table)
