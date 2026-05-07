@@ -66,22 +66,14 @@ class DistilledTradeClient:
 
     def _predict_one(self, candidate: dict, biases: dict[tuple[str, str], dict[str, float]]) -> dict:
         symbol = str(candidate.get("symbol") or "").strip().upper()
-        components = self._component_scores(candidate)
+        base_signal = self._signal_from_candidate(candidate)
+        components = {
+            "base_signal": _clamp(base_signal, -1.0, 1.0),
+        }
         long_bias = float((biases.get((symbol, "LONG"), {}) or {}).get("bias", 0.0) or 0.0)
         short_bias = float((biases.get((symbol, "SHORT"), {}) or {}).get("bias", 0.0) or 0.0)
         memory_edge = long_bias - short_bias
-        components["shared_memory"] = _clamp(memory_edge, -0.45, 0.45)
-
-        current_side = str(candidate.get("current_position_side") or "").strip().upper()
-        pre_score = sum(components.values())
-        if current_side == "LONG" and pre_score > 0:
-            components["position_continuity"] = 0.08
-        elif current_side == "SHORT" and pre_score < 0:
-            components["position_continuity"] = -0.08
-        elif current_side in {"LONG", "SHORT"}:
-            components["position_continuity"] = -0.05 if pre_score > 0 else 0.05
-        else:
-            components["position_continuity"] = 0.0
+        components["shared_memory"] = _clamp(memory_edge, -0.20, 0.20)
 
         score = sum(components.values())
         label = self._label_from_score(score)
@@ -97,6 +89,18 @@ class DistilledTradeClient:
             "reason": reason,
             "class_probabilities": class_probabilities,
         }
+
+    @staticmethod
+    def _signal_from_candidate(candidate: dict) -> float:
+        for key in ("predicted_return", "adjusted_score", "score", "alpha_signal"):
+            try:
+                value = candidate.get(key)
+                if value is None:
+                    continue
+                return float(value)
+            except (TypeError, ValueError):
+                continue
+        return 0.0
 
     def _component_scores(self, candidate: dict) -> dict[str, float]:
         def f(name: str) -> float:

@@ -81,6 +81,63 @@ def _ai_view_text(row):
     return label_text or reason or "N/A"
 
 
+def _manager_style_reason(pos):
+    """Generate a concise one-line rationale for AI entries in email output."""
+    if not isinstance(pos, dict):
+        return ""
+    raw_reason = str(pos.get("reason") or "").strip()
+    if not raw_reason:
+        return ""
+    side = str(pos.get("side") or "LONG").upper()
+    conf = pos.get("decision_confidence", pos.get("confidence"))
+    alloc_pct = pos.get("allocation_pct")
+    try:
+        conf_txt = f"{float(conf):.2f}"
+    except (TypeError, ValueError):
+        conf_txt = "N/A"
+    try:
+        alloc_txt = f"{float(alloc_pct):.1f}%"
+    except (TypeError, ValueError):
+        alloc_txt = "N/A"
+
+    tokens = []
+    low = raw_reason.lower()
+    if "momentum" in low:
+        tokens.append("momentum continuation")
+    if "trend" in low:
+        tokens.append("trend persistence")
+    if "volume" in low:
+        tokens.append("volume confirmation")
+    if "rsi" in low:
+        tokens.append("RSI regime support")
+    if "feature balance" in low:
+        tokens.append("cross-factor alignment")
+    if not tokens:
+        tokens.append("multi-factor model signal")
+    thesis = ", ".join(tokens[:3])
+    direction = "Upside" if side == "LONG" else "Downside"
+    return f"{direction} thesis: {thesis}; conviction={conf_txt}; size={alloc_txt}."
+
+
+def _manager_style_close_reason(pos):
+    """Generate a concise one-line rationale for AI position exits in email output."""
+    if not isinstance(pos, dict):
+        return ""
+    raw_reason = str(pos.get("reason") or "").strip()
+    side = str(pos.get("side") or "LONG").upper()
+    try:
+        pnl_pct = float(pos.get("realized_pnl", 0.0) or 0.0)
+        pnl_txt = f"{pnl_pct:+.2%}"
+    except (TypeError, ValueError):
+        pnl_txt = "N/A"
+    if "AI rotation" in raw_reason:
+        direction = "long" if side == "LONG" else "short"
+        return f"Portfolio rebalance exit: {direction} position rotated out after model target update; realized={pnl_txt}."
+    if raw_reason:
+        return f"Model-driven exit: {raw_reason}; realized={pnl_txt}."
+    return f"Model-driven exit executed; realized={pnl_txt}."
+
+
 class EmailNotifier:
     def __init__(self):
         self.smtp_server = os.getenv('SMTP_SERVER', 'smtp.gmail.com')
@@ -208,150 +265,9 @@ class EmailNotifier:
             ])
             total = pipeline_stats.get('tickers_total')
             processed = pipeline_stats.get('tickers_processed')
-            failed = pipeline_stats.get('tickers_failed')
-            news_enabled = pipeline_stats.get('news_enabled')
-            models_trained = pipeline_stats.get('models_trained')
-            llm_status = pipeline_stats.get('llm_status') if isinstance(pipeline_stats, dict) else None
-            ai_trading_llm_status = pipeline_stats.get('ai_trading_llm_status') if isinstance(pipeline_stats, dict) else None
-            run_health = str(pipeline_stats.get("run_health") or "").strip().upper() if isinstance(pipeline_stats, dict) else ""
-            error_count = pipeline_stats.get("error_count") if isinstance(pipeline_stats, dict) else None
-            warning_count = pipeline_stats.get("warning_count") if isinstance(pipeline_stats, dict) else None
-            failed_symbols = pipeline_stats.get("failed_symbols") if isinstance(pipeline_stats, dict) else None
-            issues = pipeline_stats.get("issues") if isinstance(pipeline_stats, dict) else None
-            issue_overflow_count = pipeline_stats.get("issue_overflow_count") if isinstance(pipeline_stats, dict) else None
-            if run_health not in {"OK", "WARNING", "ERROR"}:
-                if _safe_int(error_count) > 0 or _safe_int(failed) > 0:
-                    run_health = "ERROR"
-                elif _safe_int(warning_count) > 0:
-                    run_health = "WARNING"
-                else:
-                    run_health = "OK"
-            if total is not None:
-                body_lines.append(f"Tickers Total: {total}")
-            if processed is not None:
-                body_lines.append(f"Tickers Processed: {processed}")
-            if failed is not None:
-                body_lines.append(f"Tickers Failed: {failed}")
-            if isinstance(failed_symbols, list) and failed_symbols:
-                sample = ", ".join([str(s) for s in failed_symbols[:10]])
-                suffix = " ..." if len(failed_symbols) > 10 else ""
-                body_lines.append(f"Failed Symbols (sample): {sample}{suffix}")
-            if models_trained is not None:
-                body_lines.append(f"Models Trained: {models_trained}")
-            if news_enabled is not None:
-                body_lines.append(f"News/LLM Sentiment: {'ON' if news_enabled else 'OFF'}")
-            if run_health in {"OK", "WARNING", "ERROR"}:
-                body_lines.append(f"Run Health: {run_health}")
-            if error_count is not None:
-                body_lines.append(f"Run Errors: {_safe_int(error_count)}")
-            if warning_count is not None:
-                body_lines.append(f"Run Warnings: {_safe_int(warning_count)}")
-            if llm_status is not None:
-                errors = llm_status.get('errors', 0)
-                attempts = llm_status.get('attempts', 0)
-                last_error = llm_status.get('last_error')
-                local_scored = llm_status.get('local_scored')
-                if errors:
-                    body_lines.append(f"LLM Status: ERROR (attempts={attempts}, errors={errors})")
-                    if last_error:
-                        body_lines.append(f"LLM Error: {last_error}")
-                else:
-                    body_lines.append(f"LLM Status: OK (attempts={attempts})")
-                if local_scored is not None:
-                    body_lines.append(f"LLM Local Fallback Scored: {_safe_int(local_scored)}")
-            # AI-trading diagnostics must appear only in the AI strategy email.
-            include_ai_pipeline = str(subject_tag or "").strip().upper() == "AI"
-            if include_ai_pipeline and ai_trading_llm_status is not None:
-                ok = bool(ai_trading_llm_status.get("ok"))
-                err = ai_trading_llm_status.get("error")
-                model = ai_trading_llm_status.get("model")
-                model_used = ai_trading_llm_status.get("model_used")
-                seen = ai_trading_llm_status.get("candidates_seen") or ai_trading_llm_status.get("candidates_built")
-                blocked = ai_trading_llm_status.get("blocked_by_core")
-                disallow = ai_trading_llm_status.get("disallow_core_overlap")
-                skipped_reason = ai_trading_llm_status.get("skipped_reason")
-                manager_mode = ai_trading_llm_status.get("manager_mode")
-                suffix = f" (model={model})" if model else ""
-                body_lines.append(f"AI Trading Engine: {'OK' if ok else 'ERROR'}{suffix}")
-                if manager_mode:
-                    body_lines.append(f"AI Manager Mode: {manager_mode}")
-                if model_used:
-                    body_lines.append(f"AI Model Used: {model_used}")
-                backend_selected = ai_trading_llm_status.get("selected_backend")
-                if backend_selected:
-                    body_lines.append(f"AI Backend Selected: {backend_selected}")
-                router_reason = ai_trading_llm_status.get("router_reason")
-                if router_reason:
-                    body_lines.append(f"AI Router Reason: {router_reason}")
-                memory_backend = ai_trading_llm_status.get("shared_memory_last_backend")
-                if memory_backend:
-                    body_lines.append(f"AI Shared Memory Last Backend: {memory_backend}")
-                if skipped_reason == "no_capacity":
-                    cap = ai_trading_llm_status.get("available_capital")
-                    slots = ai_trading_llm_status.get("available_slots")
-                    cap_txt = f"${float(cap):,.2f}" if isinstance(cap, (int, float)) else "N/A"
-                    slots_txt = str(slots) if slots is not None else "N/A"
-                    body_lines.append(f"AI Engine Call: SKIPPED (no available capacity; cash={cap_txt}, slots={slots_txt})")
-                elif skipped_reason == "all_neutral":
-                    body_lines.append("AI Engine Call: COMPLETED (all model signals neutral; portfolio moved to cash)")
-                elif skipped_reason == "no_tradeable_signals":
-                    body_lines.append("AI Engine Call: COMPLETED (signals filtered as non-tradeable)")
-                if seen is not None:
-                    body_lines.append(f"AI Candidates: {seen}")
-                target_positions = ai_trading_llm_status.get("target_positions")
-                if target_positions is not None:
-                    body_lines.append(f"AI Target Positions: {target_positions}")
-                evaluated_positions = ai_trading_llm_status.get("positions_evaluated")
-                if evaluated_positions is not None:
-                    body_lines.append(f"AI Positions Evaluated: {evaluated_positions}")
-                opened_positions = ai_trading_llm_status.get("positions_opened")
-                closed_positions_count = ai_trading_llm_status.get("positions_closed_by_ai")
-                topped_up_positions = ai_trading_llm_status.get("positions_topped_up")
-                if any(v is not None for v in (opened_positions, closed_positions_count, topped_up_positions)):
-                    body_lines.append(
-                        "AI Portfolio Actions: "
-                        f"opened={_safe_int(opened_positions)}, closed={_safe_int(closed_positions_count)}, topped_up={_safe_int(topped_up_positions)}"
-                    )
-                if disallow is not None:
-                    body_lines.append(f"AI Core-Overlap Block: {'ON' if disallow else 'OFF'}")
-                if blocked is not None:
-                    body_lines.append(f"AI Core-Overlap Blocked Symbols: {blocked}")
-                if ai_trading_llm_status.get("entries_blocked_due_to_llm_error"):
-                    body_lines.append("AI Entries: BLOCKED (engine unavailable/error)")
-                if (not ok) and err:
-                    body_lines.append(f"AI Engine Error: {err}")
-
-            if isinstance(issues, list) and issues:
-                body_lines.append("")
-                body_lines.append("ERROR SUMMARY")
-                body_lines.append("-" * 40)
-                for issue in issues[:12]:
-                    sev = str(issue.get("severity") or "ERROR").upper()
-                    src = str(issue.get("source") or "pipeline")
-                    msg = str(issue.get("message") or "").strip()
-                    t = str(issue.get("time") or "").strip()
-                    prefix = f"[{t}] " if t else ""
-                    line = f"{prefix}{sev}: {src}"
-                    if msg:
-                        line += f" - {msg}"
-                    body_lines.append(line)
-                if issue_overflow_count:
-                    body_lines.append(f"... plus {_safe_int(issue_overflow_count)} additional issue(s) omitted.")
-            
-            steps = pipeline_stats.get('steps')
-            if steps:
-                body_lines.append("")
-                body_lines.append("EXECUTION STEPS")
-                body_lines.append("-" * 20)
-                for step in steps:
-                    time_str = step.get('time', '')
-                    name = step.get('step', '')
-                    status = step.get('status', '')
-                    details = step.get('details', '')
-                    line = f"[{time_str}] {name}: {status}"
-                    if details:
-                        line += f" ({details})"
-                    body_lines.append(line)
+            ticker_scan = processed if processed is not None else total
+            if ticker_scan is not None:
+                body_lines.append(f"Tickers Scanned: {ticker_scan}")
 
             body_lines.append("")
         
@@ -425,7 +341,6 @@ class EmailNotifier:
                     for pos in newp:
                         entry_price = pos.get("entry_price")
                         target_price = pos.get("target_price")
-                        qty = pos.get("quantity", 0)
                         allocation_pct = pos.get("allocation_pct")
                         allocation_dollars = pos.get("allocation_dollars")
                         rows.append([
@@ -433,13 +348,12 @@ class EmailNotifier:
                             pos.get("side", "LONG"),
                             f"{entry_price:.2f}" if isinstance(entry_price, (int, float)) else "N/A",
                             f"{target_price:.2f}" if isinstance(target_price, (int, float)) else "N/A",
-                            _format_quantity(qty),
                             f"{allocation_pct:.1f}%" if allocation_pct is not None else "N/A",
                             f"${allocation_dollars:,.2f}" if allocation_dollars is not None else "N/A",
-                            pos.get("reason") or "",
+                            _manager_style_reason(pos),
                         ])
                     body_lines.append(_format_table(
-                        ["Symbol", "Side", "Entry", "TP", "Qty", "Alloc %", "Alloc $", "Reason"],
+                        ["Symbol", "Side", "Entry", "TP", "Alloc %", "Alloc $", "Reason"],
                         rows
                     ))
                 else:
@@ -460,7 +374,7 @@ class EmailNotifier:
                             f"{entry_price:.2f}" if isinstance(entry_price, (int, float)) else "N/A",
                             f"{exit_price:.2f}" if isinstance(exit_price, (int, float)) else "N/A",
                             f"{realized:+.2%}",
-                            pos.get("reason") or "",
+                            _manager_style_close_reason(pos),
                         ])
                     body_lines.append(_format_table(
                         ["Symbol", "Side", "Entry", "Exit", "P&L %", "Reason"],
@@ -496,7 +410,7 @@ class EmailNotifier:
                     body_lines.append("No open positions.")
             body_lines.append("")
 
-        if meta_insights and not strategies:
+        if meta_insights and not strategies and str(subject_tag or "").strip().upper() == "AI":
             body_lines.extend([
                 "META-LEARNER INSIGHTS",
                 "-" * 40,
@@ -516,7 +430,6 @@ class EmailNotifier:
                 side = pos.get("side") or "LONG"
                 entry_price = pos.get('entry_price')
                 target_price = pos.get('target_price')
-                qty = pos.get('quantity', 0)
                 allocation_pct = pos.get('allocation_pct')
                 allocation_dollars = pos.get('allocation_dollars')
                 if ai_autonomous:
@@ -524,11 +437,10 @@ class EmailNotifier:
                         pos.get('symbol'),
                         side,
                         f"{entry_price:.2f}" if entry_price is not None else "N/A",
-                        _format_quantity(qty),
                         f"{allocation_pct:.1f}%" if allocation_pct is not None else "N/A",
                         f"${allocation_dollars:,.2f}" if allocation_dollars is not None else "N/A",
                         f"{float(pos.get('decision_confidence', 0.0)):.2f}" if pos.get('decision_confidence') is not None else "N/A",
-                        pos.get('reason') or "",
+                        _manager_style_reason(pos),
                     ])
                 else:
                     rows.append([
@@ -536,13 +448,11 @@ class EmailNotifier:
                         side,
                         f"{entry_price:.2f}" if entry_price is not None else "N/A",
                         f"{target_price:.2f}" if target_price is not None else "N/A",
-                        _format_quantity(qty),
                         f"{allocation_pct:.1f}%" if allocation_pct is not None else "N/A",
-                        f"${allocation_dollars:,.2f}" if allocation_dollars is not None else "N/A",
-                        pos.get('reason') or ""
+                        f"${allocation_dollars:,.2f}" if allocation_dollars is not None else "N/A"
                     ])
             table = _format_table(
-                ["Symbol", "Side", "Entry", "Qty", "Alloc %", "Alloc $", "Conf", "Reason"] if ai_autonomous else ["Symbol", "Side", "Entry", "TP", "Qty", "Alloc %", "Alloc $", "Reason"],
+                ["Symbol", "Side", "Entry", "Alloc %", "Alloc $", "Conf", "Reason"] if ai_autonomous else ["Symbol", "Side", "Entry", "TP", "Alloc %", "Alloc $"],
                 rows
             )
             body_lines.append(table)
@@ -566,17 +476,25 @@ class EmailNotifier:
                 entry_price = pos.get('entry_price')
                 exit_price = pos.get('exit_price')
                 realized = pos.get('realized_pnl', 0.0)
-                reason = pos.get('reason')
-                rows.append([
-                    pos.get('symbol'),
-                    side,
-                    f"{entry_price:.2f}" if entry_price is not None else "N/A",
-                    f"{exit_price:.2f}" if exit_price is not None else "N/A",
-                    f"{realized:+.2%}",
-                    reason or ""
-                ])
+                if ai_autonomous:
+                    rows.append([
+                        pos.get('symbol'),
+                        side,
+                        f"{entry_price:.2f}" if entry_price is not None else "N/A",
+                        f"{exit_price:.2f}" if exit_price is not None else "N/A",
+                        f"{realized:+.2%}",
+                        _manager_style_close_reason(pos)
+                    ])
+                else:
+                    rows.append([
+                        pos.get('symbol'),
+                        side,
+                        f"{entry_price:.2f}" if entry_price is not None else "N/A",
+                        f"{exit_price:.2f}" if exit_price is not None else "N/A",
+                        f"{realized:+.2%}",
+                    ])
             table = _format_table(
-                ["Symbol", "Side", "Entry", "Exit", "P&L %", "Reason"],
+                ["Symbol", "Side", "Entry", "Exit", "P&L %", "Reason"] if ai_autonomous else ["Symbol", "Side", "Entry", "Exit", "P&L %"],
                 rows
             )
             body_lines.append(table)
@@ -612,10 +530,7 @@ class EmailNotifier:
                         row.get('entry_date'),
                         f"{float(row.get('entry_price', 0.0)):.2f}",
                         f"{row.get('current_price', 0.0):.2f}",
-                        row.get('current_price_date') or 'N/A',
                         pnl_str,
-                        f"${pnl_dollars:,.2f}" if pnl_dollars is not None else "N/A",
-                        _ai_view_text(row),
                     ])
                 else:
                     rows.append([
@@ -626,11 +541,10 @@ class EmailNotifier:
                         f"{row.get('current_price', 0.0):.2f}",
                         f"{row.get('target_price', 0.0):.2f}",
                         pnl_str,
-                        f"${pnl_dollars:,.2f}" if pnl_dollars is not None else "N/A",
                         dist_str,
                     ])
             table = _format_table(
-                ["Symbol", "Side", "Entry Date", "Entry", "Current", "Px Date", "P&L %", "P&L $", "AI View"] if ai_autonomous else ["Symbol", "Side", "Entry Date", "Entry", "Current", "TP", "P&L %", "P&L $", "Dist to TP"],
+                ["Symbol", "Side", "Entry Date", "Entry", "Current", "P&L %"] if ai_autonomous else ["Symbol", "Side", "Entry Date", "Entry", "Current", "TP", "P&L %", "Dist to TP"],
                 rows
             )
             body_lines.append(table)
@@ -643,7 +557,7 @@ class EmailNotifier:
                 "",
             ])
 
-        if signal_rankings is not None:
+        if signal_rankings is not None and str(subject_tag or "").strip().upper() == "AI":
             body_lines.extend([
                 "SIGNAL RANKINGS (T-1)",
                 "-" * 40,
