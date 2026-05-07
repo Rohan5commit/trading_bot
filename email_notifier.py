@@ -443,25 +443,14 @@ class EmailNotifier:
                         _manager_style_reason(pos),
                     ])
                 else:
-                    if ai_autonomous:
-                        rows.append([
-                            pos.get('symbol'),
-                            side,
-                            f"{entry_price:.2f}" if entry_price is not None else "N/A",
-                            f"{allocation_pct:.1f}%" if allocation_pct is not None else "N/A",
-                            f"${allocation_dollars:,.2f}" if allocation_dollars is not None else "N/A",
-                            f"{float(pos.get('decision_confidence', 0.0)):.2f}" if pos.get('decision_confidence') is not None else "N/A",
-                            _manager_style_reason(pos),
-                        ])
-                    else:
-                        rows.append([
-                            pos.get('symbol'),
-                            side,
-                            f"{entry_price:.2f}" if entry_price is not None else "N/A",
-                            f"{target_price:.2f}" if target_price is not None else "N/A",
-                            f"{allocation_pct:.1f}%" if allocation_pct is not None else "N/A",
-                            f"${allocation_dollars:,.2f}" if allocation_dollars is not None else "N/A"
-                        ])
+                    rows.append([
+                        pos.get('symbol'),
+                        side,
+                        f"{entry_price:.2f}" if entry_price is not None else "N/A",
+                        f"{target_price:.2f}" if target_price is not None else "N/A",
+                        f"{allocation_pct:.1f}%" if allocation_pct is not None else "N/A",
+                        f"${allocation_dollars:,.2f}" if allocation_dollars is not None else "N/A"
+                    ])
             table = _format_table(
                 ["Symbol", "Side", "Entry", "Alloc %", "Alloc $", "Conf", "Reason"] if ai_autonomous else ["Symbol", "Side", "Entry", "TP", "Alloc %", "Alloc $"],
                 rows
