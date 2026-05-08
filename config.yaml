@@ -131,8 +131,8 @@ ai_trading:
   neutral_breakout_max_gap: 0.10
   decision_engine: "trained_model"
   runtime_router:
-    # Auto = try the full trained-model service first when a larger Lightning CPU
-    # is available; otherwise fall back to the local distilled manager.
+    # Auto = try the full trained-model service first. In production GitHub Actions,
+    # Cerebrium is the primary GPU endpoint; Lightning/local distilled remains fallback.
     mode: "auto"
     fallback_to_distilled_on_error: true
     memory_lookback_days: 120
@@ -142,10 +142,12 @@ ai_trading:
     preferred_large_disk_gb: 80
   trained_model:
     backend: "http"
+    provider: "cerebrium"
     inference_url: ""
-    inference_url_env: "TRAINED_MODEL_INFERENCE_URL"
-    api_key_env: "TRAINED_MODEL_API_KEY"
-    # The endpoint is expected to be a remote CPU inference service (for example Lightning AI).
+    inference_url_env: "CEREBRIUM_INFERENCE_URL"
+    api_key_env: "CEREBRIUM_API_KEY"
+    # The endpoint is expected to be a remote HTTP inference service. Cerebrium is
+    # preferred via env; TRAINED_MODEL_INFERENCE_URL remains a rollback-compatible fallback.
     timeout_seconds: 1200
     batch_size: 8
     max_retries: 0

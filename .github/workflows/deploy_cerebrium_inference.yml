@@ -1,0 +1,44 @@
+name: Deploy Cerebrium Inference
+
+on:
+  workflow_dispatch:
+    inputs:
+      skip_deploy:
+        description: "Only validate CLI/project selection; do not deploy"
+        required: false
+        default: false
+        type: boolean
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    permissions:
+      contents: read
+    env:
+      CEREBRIUM_SERVICE_ACCOUNT_TOKEN: ${{ secrets.CEREBRIUM_SERVICE_ACCOUNT_TOKEN }}
+      CEREBRIUM_PROJECT_ID: ${{ secrets.CEREBRIUM_PROJECT_ID || 'p-58018090' }}
+      TRAINED_MODEL_BASE_MODEL: "Qwen/Qwen2.5-7B-Instruct"
+      TRAINED_MODEL_NAME: "quant-trained-trading-model"
+      TRAINED_MODEL_ADAPTER_ARCHIVE_URL: ${{ secrets.TRAINED_MODEL_ADAPTER_ARCHIVE_URL }}
+      TRAINED_MODEL_ADAPTER_ARCHIVE_TOKEN: ${{ secrets.TRAINED_MODEL_ADAPTER_ARCHIVE_TOKEN }}
+      TRAINED_MODEL_API_KEY: ${{ secrets.TRAINED_MODEL_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Deploy Cerebrium GPU inference app
+        run: |
+          args=""
+          if [ "${{ inputs.skip_deploy }}" = "true" ]; then
+            args="--skip-deploy"
+          fi
+          python deploy_cerebrium_inference.py ${args} --json-out results/cerebrium_deploy.json
+      - name: Upload deployment metadata
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cerebrium-deploy
+          path: results/cerebrium_deploy.json
+          retention-days: 14
