@@ -229,6 +229,32 @@ def _parse_plain_label(text: str):
     return {"label": label, "confidence": 0.5, "reason": str(text).strip()}
 
 
+def _context_for_symbol(candidate: Dict[str, Any]) -> str:
+    context = candidate.get("manager_context")
+    if not isinstance(context, dict):
+        return ""
+    symbol = str(candidate.get("symbol") or "UNKNOWN").strip().upper()
+    parts = []
+    last_backend = str(context.get("last_backend") or "").strip()
+    if last_backend:
+        parts.append(f"LB={last_backend[:24]}")
+    for item in list(context.get("top_symbol_biases") or []):
+        if not isinstance(item, dict):
+            continue
+        if str(item.get("symbol") or "").strip().upper() != symbol:
+            continue
+        side = str(item.get("side") or "").strip().upper()[:5]
+        try:
+            bias = float(item.get("bias", 0.0) or 0.0)
+            confidence = float(item.get("confidence", 0.0) or 0.0)
+        except (TypeError, ValueError):
+            continue
+        parts.append(f"MEM_{side}={bias:.3f}/{confidence:.2f}")
+    if not parts:
+        return ""
+    return " CTX=" + ";".join(parts[:3])
+
+
 def _candidate_prompt(candidate: Dict[str, Any]) -> str:
     symbol = str(candidate.get("symbol") or "UNKNOWN").strip().upper()
     as_of_date = candidate.get("as_of_date") or candidate.get("last_date") or "UNKNOWN"
@@ -250,7 +276,8 @@ def _candidate_prompt(candidate: Dict[str, Any]) -> str:
         f"RSI={_fmt(candidate.get('rsi_14'), 2)} "
         f"VR={_fmt(candidate.get('volume_ratio'), 2)} "
         f"NC={int(candidate.get('news_count_7d') or 0)} "
-        f"NS={_fmt(candidate.get('news_sentiment_7d'), 3)} "
+        f"NS={_fmt(candidate.get('news_sentiment_7d'), 3)}"
+        f"{_context_for_symbol(candidate)} "
         "Class:"
     )
 
@@ -316,16 +343,22 @@ def _load_runtime():
             tokenizer = AutoTokenizer.from_pretrained(BASE_MODEL, trust_remote_code=True)
             if tokenizer.pad_token is None:
                 tokenizer.pad_token = tokenizer.eos_token
+            use_cuda = bool(getattr(torch, "cuda", None) and torch.cuda.is_available())
+            model_kwargs = {
+                "trust_remote_code": True,
+                "low_cpu_mem_usage": True,
+                "torch_dtype": "auto",
+            }
+            if use_cuda:
+                model_kwargs["device_map"] = "auto"
             model = AutoModelForCausalLM.from_pretrained(
                 BASE_MODEL,
-                trust_remote_code=True,
-                low_cpu_mem_usage=True,
-                torch_dtype="auto",
+                **model_kwargs,
             )
             model = PeftModel.from_pretrained(model, str(adapter_dir), is_trainable=False)
             if _env_flag("TRAINED_MODEL_MERGE_ADAPTER", default=True) and hasattr(model, "merge_and_unload"):
                 model = model.merge_and_unload()
-            if _env_flag("TRAINED_MODEL_DYNAMIC_QUANTIZE", default=True):
+            if (not use_cuda) and _env_flag("TRAINED_MODEL_DYNAMIC_QUANTIZE", default=True):
                 try:
                     model = torch.quantization.quantize_dynamic(model, {torch.nn.Linear}, dtype=torch.qint8)
                 except Exception:
@@ -399,6 +432,12 @@ def _predict_batch_from_class_logits(candidates: List[Dict[str, Any]], model, to
         truncation=True,
         max_length=256,
     )
+    try:
+        first_param = next(model.parameters())
+        if getattr(first_param, "device", None) is not None:
+            encoded = {key: value.to(first_param.device) for key, value in encoded.items()}
+    except Exception:
+        pass
     input_lens = encoded["attention_mask"].sum(dim=1).tolist()
     with torch.no_grad():
         outputs = model(**encoded)
@@ -445,6 +484,12 @@ def _predict_batch(candidates: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         truncation=True,
         max_length=256,
     )
+    try:
+        first_param = next(model.parameters())
+        if getattr(first_param, "device", None) is not None:
+            encoded = {key: value.to(first_param.device) for key, value in encoded.items()}
+    except Exception:
+        pass
     input_lens = encoded["attention_mask"].sum(dim=1).tolist()
     with torch.no_grad():
         generated = model.generate(
@@ -527,6 +572,9 @@ def warmup() -> dict[str, Any]:
 @app.post("/predict_trade_candidates", dependencies=[Depends(_require_api_key)])
 def predict_trade_candidates(payload: Dict[str, Any]) -> dict[str, Any]:
     candidates = _normalize_candidates(payload)
+    manager_context = payload.get("manager_context")
+    if isinstance(manager_context, dict) and manager_context:
+        candidates = [{**candidate, "manager_context": manager_context} for candidate in candidates]
     if not candidates:
         raise HTTPException(status_code=400, detail="No candidate payload supplied.")
     try:

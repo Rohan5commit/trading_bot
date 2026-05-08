@@ -28,12 +28,22 @@ class TrainedModelTradeClient:
         ai_cfg = dict(ai_cfg or {})
         model_cfg = dict(ai_cfg.get("trained_model") or {})
         self.backend = str(model_cfg.get("backend", "http") or "http").strip().lower()
+        self.provider = str(
+            os.getenv("AI_PRIMARY_BACKEND")
+            or model_cfg.get("provider")
+            or model_cfg.get("platform")
+            or "http"
+        ).strip().lower()
         self.inference_url_env = str(model_cfg.get("inference_url_env", "") or "").strip()
         self.inference_url = str(model_cfg.get("inference_url", "") or "").strip()
-        if not self.inference_url and self.inference_url_env and os.getenv(self.inference_url_env):
-            self.inference_url = os.getenv(self.inference_url_env).strip()
+        for env_name in self._candidate_url_envs():
+            if not self.inference_url and env_name and os.getenv(env_name):
+                self.inference_url = os.getenv(env_name).strip()
         self.api_key_env = str(model_cfg.get("api_key_env", "") or "").strip()
-        self.api_key = os.getenv(self.api_key_env).strip() if self.api_key_env and os.getenv(self.api_key_env) else ""
+        self.api_key = ""
+        for env_name in self._candidate_api_key_envs():
+            if not self.api_key and env_name and os.getenv(env_name):
+                self.api_key = os.getenv(env_name).strip()
         timeout_override = os.getenv("TRAINED_MODEL_TIMEOUT_SECONDS")
         retries_override = os.getenv("TRAINED_MODEL_MAX_RETRIES")
         backoff_override = os.getenv("TRAINED_MODEL_BACKOFF_SECONDS")
@@ -45,13 +55,29 @@ class TrainedModelTradeClient:
         self.model_name = str(model_cfg.get("model_name", "quant-trained-trading-model") or "quant-trained-trading-model").strip()
         self.last_error = None
         self.last_model_used = None
+        self.last_status_code = None
+        self.last_request_id = None
+
+    def _candidate_url_envs(self) -> list[str]:
+        envs = []
+        if self.provider in {"cerebrium", "cerebrium_full", "cerebrum"}:
+            envs.extend(["CEREBRIUM_INFERENCE_URL", "CEREBRIUM_TRAINED_MODEL_URL"])
+        envs.extend([self.inference_url_env, "TRAINED_MODEL_INFERENCE_URL"])
+        return [env for env in envs if env]
+
+    def _candidate_api_key_envs(self) -> list[str]:
+        envs = []
+        if self.provider in {"cerebrium", "cerebrium_full", "cerebrum"}:
+            envs.extend(["CEREBRIUM_API_KEY", "CEREBRIUM_INFERENCE_API_KEY"])
+        envs.extend([self.api_key_env, "TRAINED_MODEL_API_KEY"])
+        return [env for env in envs if env]
 
     @property
     def model_identifier(self) -> str:
         return self.model_name or self.inference_url or "trained-model-http"
 
     def is_ready(self) -> bool:
-        if self.backend != "http":
+        if self.backend not in {"http", "cerebrium", "cerebrium_full"}:
             self.last_error = f"Unsupported trained model backend: {self.backend}. Use remote HTTP inference only."
             return False
         if not self.inference_url:
@@ -59,11 +85,11 @@ class TrainedModelTradeClient:
             return False
         return True
 
-    def predict_candidate(self, candidate: dict) -> Optional[dict]:
-        results = self.predict_candidates([candidate])
+    def predict_candidate(self, candidate: dict, manager_context: Optional[dict] = None) -> Optional[dict]:
+        results = self.predict_candidates([candidate], manager_context=manager_context)
         return results[0] if results else None
 
-    def predict_candidates(self, candidates: List[dict]) -> List[Optional[dict]]:
+    def predict_candidates(self, candidates: List[dict], manager_context: Optional[dict] = None) -> List[Optional[dict]]:
         if not self.is_ready():
             return [None for _ in list(candidates or [])]
         payload_candidates = [dict(c or {}) for c in list(candidates or []) if isinstance(c, dict)]
@@ -73,7 +99,7 @@ class TrainedModelTradeClient:
         for start in range(0, len(payload_candidates), self.batch_size):
             batch = payload_candidates[start : start + self.batch_size]
             try:
-                raw_signals = self._predict_batch_http(batch)
+                raw_signals = self._predict_batch_http(batch, manager_context=manager_context)
             except Exception as exc:
                 self.last_error = str(exc)
                 logger.warning(
@@ -91,11 +117,13 @@ class TrainedModelTradeClient:
             out.extend(normalized[: len(batch)])
         return out[: len(payload_candidates)]
 
-    def _predict_batch_http(self, candidates: List[dict]):
+    def _predict_batch_http(self, candidates: List[dict], manager_context: Optional[dict] = None):
         payload = {
             "candidates": candidates,
             "task": "trade_signal_classification",
         }
+        if isinstance(manager_context, dict) and manager_context:
+            payload["manager_context"] = manager_context
         headers = self._request_headers()
         data = None
         last_exc = None
@@ -115,10 +143,12 @@ class TrainedModelTradeClient:
                     headers=headers,
                     timeout=self.timeout_seconds,
                 )
-                if response.status_code >= 500:
+                self.last_status_code = response.status_code
+                self.last_request_id = response.headers.get("x-request-id") or response.headers.get("x-cerebrium-request-id")
+                if response.status_code in {402, 408, 409, 425, 429} or response.status_code >= 500:
                     detail = self._error_detail(response)
                     raise requests.HTTPError(
-                        f"{response.status_code} Server Error: {detail or response.reason or 'remote inference failed'} for url: {response.url}",
+                        f"{response.status_code} Inference Capacity Error: {detail or response.reason or 'remote inference failed'} for url: {response.url}",
                         response=response,
                     )
                 response.raise_for_status()
@@ -160,6 +190,8 @@ class TrainedModelTradeClient:
             headers=self._request_headers(),
             timeout=min(self.timeout_seconds, 30),
         )
+        self.last_status_code = response.status_code
+        self.last_request_id = response.headers.get("x-request-id") or response.headers.get("x-cerebrium-request-id")
         response.raise_for_status()
         payload = response.json()
         if not isinstance(payload, dict):

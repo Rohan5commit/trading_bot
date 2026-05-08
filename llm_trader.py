@@ -241,7 +241,15 @@ def _build_clients(config: dict, ai_cfg: dict, manager_memory: AIManagerMemory):
     }
 
 
-def _predict_trades_from_client(client, ai_cfg: dict, prompt_candidates, max_positions=10, allow_shorts=True, max_shorts=5):
+def _predict_trades_from_client(
+    client,
+    ai_cfg: dict,
+    prompt_candidates,
+    max_positions=10,
+    allow_shorts=True,
+    max_shorts=5,
+    manager_context=None,
+):
     status = {
         "enabled": bool(ai_cfg.get("enabled", False)),
         "ok": False,
@@ -294,7 +302,13 @@ def _predict_trades_from_client(client, ai_cfg: dict, prompt_candidates, max_pos
     neutral_predictions = 0
     neutral_breakouts = 0
     failures = []
-    batch_predictions = client.predict_candidates(prompt_candidates)
+    if isinstance(manager_context, dict) and manager_context:
+        try:
+            batch_predictions = client.predict_candidates(prompt_candidates, manager_context=manager_context)
+        except TypeError:
+            batch_predictions = client.predict_candidates(prompt_candidates)
+    else:
+        batch_predictions = client.predict_candidates(prompt_candidates)
     for candidate, prediction in zip(prompt_candidates, batch_predictions):
         if prediction is None:
             failures.append(
@@ -425,6 +439,7 @@ def propose_trades_with_llm(config, candidates, max_positions=10, allow_shorts=T
             max_positions=max_positions,
             allow_shorts=allow_shorts,
             max_shorts=max_shorts,
+            manager_context=manager_context,
         )
         status["requested_mode"] = route_status.get("requested_mode")
         status["router_reason"] = route_status.get("router_reason")
@@ -432,6 +447,9 @@ def propose_trades_with_llm(config, candidates, max_positions=10, allow_shorts=T
         status["shared_memory_last_backend"] = manager_context.get("last_backend")
         status["shared_memory_context"] = manager_context
         status["selected_backend"] = getattr(client, "backend", None)
+        status["backend_provider"] = getattr(client, "provider", None)
+        status["backend_status_code"] = getattr(client, "last_status_code", None)
+        status["backend_request_id"] = getattr(client, "last_request_id", None)
         if index > 0:
             status["fallback_from_backend"] = getattr(clients[0], "backend", None)
             status["fallback_from_model"] = getattr(clients[0], "model_identifier", None)
@@ -452,6 +470,10 @@ def propose_trades_with_llm(config, candidates, max_positions=10, allow_shorts=T
                 "skipped_reason": status.get("skipped_reason"),
                 "predictions_seen": status.get("predictions_seen"),
                 "neutral_predictions": status.get("neutral_predictions"),
+                "fallback_from_backend": status.get("fallback_from_backend"),
+                "backend_provider": status.get("backend_provider"),
+                "backend_status_code": status.get("backend_status_code"),
+                "backend_request_id": status.get("backend_request_id"),
             },
         )
         if trades:
