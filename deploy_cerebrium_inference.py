@@ -8,7 +8,7 @@ import subprocess
 import sys
 
 PROJECT_ID = "p-58018090"
-APP_NAME = "trading-bot-cerebrium-inference"
+APP_NAME = "trading-bot-ai"
 REGION = "aws.us-east-1"
 REPO_ROOT = Path(__file__).resolve().parent
 APP_DIR = REPO_ROOT / "cerebrium_app"

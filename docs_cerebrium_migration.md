@@ -20,7 +20,7 @@ The Cerebrium app is staged from `cerebrium_app/` by `deploy_cerebrium_inference
 Expected app base URL:
 
 ```text
-https://api.aws.us-east-1.cerebrium.ai/v4/p-58018090/trading-bot-cerebrium-inference
+https://api.aws.us-east-1.cerebrium.ai/v4/p-58018090/trading-bot-ai
 ```
 
 Set the GitHub secret `CEREBRIUM_INFERENCE_URL` to that base URL or to its `/predict_trade_candidates` URL. The client will derive `/health` automatically.

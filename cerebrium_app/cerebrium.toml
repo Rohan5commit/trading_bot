@@ -1,5 +1,5 @@
 [cerebrium.deployment]
-name = "trading-bot-cerebrium-inference"
+name = "trading-bot-ai"
 python_version = "3.11"
 disable_auth = true
 include = [
