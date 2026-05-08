@@ -28,6 +28,16 @@ def _load_router_config() -> dict:
 
 def choose_runtime() -> dict:
     router_cfg = _load_router_config()
+    cerebrium_url = str(os.getenv("CEREBRIUM_INFERENCE_URL") or os.getenv("CEREBRIUM_TRAINED_MODEL_URL") or "").strip()
+    if cerebrium_url:
+        return {
+            "runtime_mode": "cerebrium_full",
+            "selected_backend": "cerebrium_full",
+            "selected_compute_name": "AMPERE_A10",
+            "selected_disk_gb": 0,
+            "reason": "cerebrium_inference_url_configured",
+            "preflight": {"cerebrium_inference_url_configured": True},
+        }
     min_balance = float(
         os.getenv("AI_FULL_MODEL_MIN_BALANCE")
         or os.getenv("LIGHTNING_LARGE_CPU_MIN_BALANCE")
