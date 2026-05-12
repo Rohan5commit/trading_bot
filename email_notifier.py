@@ -82,60 +82,17 @@ def _ai_view_text(row):
 
 
 def _manager_style_reason(pos):
-    """Generate a concise one-line rationale for AI entries in email output."""
+    """Return model-provided reason text for AI entries without rewriting."""
     if not isinstance(pos, dict):
         return ""
-    raw_reason = str(pos.get("reason") or "").strip()
-    if not raw_reason:
-        return ""
-    side = str(pos.get("side") or "LONG").upper()
-    conf = pos.get("decision_confidence", pos.get("confidence"))
-    alloc_pct = pos.get("allocation_pct")
-    try:
-        conf_txt = f"{float(conf):.2f}"
-    except (TypeError, ValueError):
-        conf_txt = "N/A"
-    try:
-        alloc_txt = f"{float(alloc_pct):.1f}%"
-    except (TypeError, ValueError):
-        alloc_txt = "N/A"
-
-    tokens = []
-    low = raw_reason.lower()
-    if "momentum" in low:
-        tokens.append("momentum continuation")
-    if "trend" in low:
-        tokens.append("trend persistence")
-    if "volume" in low:
-        tokens.append("volume confirmation")
-    if "rsi" in low:
-        tokens.append("RSI regime support")
-    if "feature balance" in low:
-        tokens.append("cross-factor alignment")
-    if not tokens:
-        tokens.append("multi-factor model signal")
-    thesis = ", ".join(tokens[:3])
-    direction = "Upside" if side == "LONG" else "Downside"
-    return f"{direction} thesis: {thesis}; conviction={conf_txt}; size={alloc_txt}."
+    return str(pos.get("decision_reason") or pos.get("reason") or "").strip()
 
 
 def _manager_style_close_reason(pos):
-    """Generate a concise one-line rationale for AI position exits in email output."""
+    """Return model-provided reason text for AI exits without rewriting."""
     if not isinstance(pos, dict):
         return ""
-    raw_reason = str(pos.get("reason") or "").strip()
-    side = str(pos.get("side") or "LONG").upper()
-    try:
-        pnl_pct = float(pos.get("realized_pnl", 0.0) or 0.0)
-        pnl_txt = f"{pnl_pct:+.2%}"
-    except (TypeError, ValueError):
-        pnl_txt = "N/A"
-    if "AI rotation" in raw_reason:
-        direction = "long" if side == "LONG" else "short"
-        return f"Portfolio rebalance exit: {direction} position rotated out after model target update; realized={pnl_txt}."
-    if raw_reason:
-        return f"Model-driven exit: {raw_reason}; realized={pnl_txt}."
-    return f"Model-driven exit executed; realized={pnl_txt}."
+    return str(pos.get("decision_reason") or pos.get("reason") or "").strip()
 
 
 class EmailNotifier:
@@ -258,7 +215,7 @@ class EmailNotifier:
             ])
             body_lines.append("")
 
-        if pipeline_stats:
+        if pipeline_stats and str(subject_tag or "").strip().upper() != "AI":
             body_lines.extend([
                 "PIPELINE SUMMARY",
                 "-" * 40,
@@ -410,13 +367,6 @@ class EmailNotifier:
                     body_lines.append("No open positions.")
             body_lines.append("")
 
-        if meta_insights and not strategies and str(subject_tag or "").strip().upper() == "AI":
-            body_lines.extend([
-                "META-LEARNER INSIGHTS",
-                "-" * 40,
-                str(meta_insights).strip(),
-                "",
-            ])
 
         ai_autonomous = _ai_autonomous_mode(report_data, pipeline_stats, subject_tag=subject_tag)
 
