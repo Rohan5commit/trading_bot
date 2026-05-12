@@ -325,7 +325,21 @@ def _predict_trades_from_client(
         reason = prediction.get("reason")
         if score == 0.0:
             neutral_predictions += 1
-            continue
+            breakout = _neutral_breakout_score(prediction, ai_cfg)
+            if breakout is None:
+                continue
+            neutral_breakouts += 1
+            score = float(breakout.get("score", 0.0) or 0.0)
+            confidence = max(confidence, float(breakout.get("confidence", confidence) or confidence))
+            prediction = {
+                **prediction,
+                "label": breakout.get("label") or prediction.get("label"),
+                "reason": prediction.get("reason")
+                or (
+                    f"Neutral breakout override: directional_prob={float(breakout.get('directional_prob', 0.0) or 0.0):.2f}, "
+                    f"neutral_prob={float(breakout.get('neutral_prob', 0.0) or 0.0):.2f}."
+                ),
+            }
 
         side = "LONG" if score > 0 else "SHORT"
 
