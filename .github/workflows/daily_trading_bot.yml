@@ -225,7 +225,7 @@ jobs:
 
       - name: Run AI Trading Bot on Cerebrium
         id: run_ai_bot_cerebrium
-        if: ${{ steps.install_base_dependencies.outcome == 'success' && !(github.event_name == 'workflow_dispatch' && inputs.run_in_lightning_studio) && ((github.event_name != 'workflow_dispatch') || (github.event_name == 'workflow_dispatch' && !inputs.disable_ai_trading)) && steps.plan_ai_runtime.outputs.runtime_mode == 'cerebrium_full' && steps.warm_cerebrium_inference.outcome == 'success' }}
+        if: ${{ steps.install_base_dependencies.outcome == 'success' && !(github.event_name == 'workflow_dispatch' && inputs.run_in_lightning_studio) && ((github.event_name != 'workflow_dispatch') || (github.event_name == 'workflow_dispatch' && !inputs.disable_ai_trading)) && steps.plan_ai_runtime.outputs.runtime_mode == 'cerebrium_full' }}
         continue-on-error: true
         timeout-minutes: 90
         env:

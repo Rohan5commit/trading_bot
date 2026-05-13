@@ -183,6 +183,32 @@ class EmailNotifier:
             "",
         ]
 
+        if str(subject_tag or "").strip().upper() == "AI" and isinstance(pipeline_stats, dict):
+            ai_status = pipeline_stats.get("ai_trading_llm_status")
+            if isinstance(ai_status, dict):
+                backend = str(ai_status.get("selected_backend") or ai_status.get("backend") or "unknown").strip() or "unknown"
+                provider = str(ai_status.get("backend_provider") or "").strip()
+                model = str(ai_status.get("model_used") or ai_status.get("model") or "unknown").strip() or "unknown"
+                fallback_from = str(ai_status.get("fallback_from_backend") or "").strip()
+                router_reason = str(ai_status.get("router_reason") or "").strip()
+                skipped_reason = str(ai_status.get("skipped_reason") or "").strip()
+                if provider and provider.lower() not in backend.lower():
+                    backend = f"{backend} ({provider})"
+                body_lines.extend([
+                    "AI RUNTIME",
+                    "-" * 40,
+                    f"Backend Used: {backend}",
+                    f"Model Used: {model}",
+                    f"Status: {'OK' if ai_status.get('ok') else 'ERROR'}",
+                ])
+                if fallback_from:
+                    body_lines.append(f"Fallback From: {fallback_from}")
+                if router_reason:
+                    body_lines.append(f"Router Reason: {router_reason}")
+                if skipped_reason:
+                    body_lines.append(f"Skipped Reason: {skipped_reason}")
+                body_lines.append("")
+
         if strategies:
             body_lines.append("This report includes multiple strategy accounts. See STRATEGY DETAILS below.")
             body_lines.append(f"Stocks Scanned Today: {stocks_scanned_str}")
