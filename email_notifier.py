@@ -173,10 +173,13 @@ class EmailNotifier:
         stocks_scanned_str = str(stocks_scanned_today) if stocks_scanned_today is not None else "N/A"
 
         # Build body without leading indentation (some email clients render leading spaces poorly).
+        period_start = str(report_data.get("performance_period_start") or "").strip()
+        period_label = f"Performance Period Since Last Reset: {period_start}" if period_start else "Performance Period Since Last Reset: N/A"
         body_lines = [
             "Daily Trading Bot Report",
             "========================",
             f"Date: {report_data['date']}",
+            period_label,
             "",
         ]
 

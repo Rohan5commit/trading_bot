@@ -831,8 +831,10 @@ class DailyBacktester:
                 invested_notional = float((open_positions_now["entry_price"] * open_positions_now["quantity"]).sum() or 0.0)
             available_cash = float(current_capital) - invested_notional
 
+            period_start_core = self.tracker.get_performance_period_start()
             report = {
                 'date': test_date.date(),
+                'performance_period_start': period_start_core,
                 'new_positions_opened': len(new_positions),
                 'positions_topped_up': len(top_up_positions),
                 'positions_closed_at_tp': len(closed_positions),
@@ -1414,8 +1416,10 @@ class DailyBacktester:
                 ai_llm_status["positions_closed_by_ai"] = len(ai_closed)
                 ai_llm_status["positions_topped_up"] = len(ai_topups)
 
+            period_start_ai = self.ai_tracker.get_performance_period_start()
             ai_report = {
                 "date": test_date.date(),
+                "performance_period_start": period_start_ai,
                 "new_positions_opened": len(ai_new),
                 "positions_topped_up": len(ai_topups),
                 "positions_closed_at_tp": len(ai_closed),
