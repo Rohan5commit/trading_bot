@@ -213,6 +213,12 @@ class TrainedModelTradeClient:
                 last_error = str(payload.get("error") or payload)
             except Exception as exc:
                 last_error = str(exc)
+                if self.provider in {"cerebrium", "cerebrium_full", "cerebrum"} and "404" in last_error:
+                    # Some Cerebrium endpoint shapes do not expose a direct /health route.
+                    # Allow inference run to continue and rely on the actual predict call as truth.
+                    self.last_error = None
+                    self.last_model_used = self.model_identifier
+                    return {"ok": True, "model": self.model_identifier, "health_probe": "skipped_after_404"}
             self.last_error = last_error
             remaining = deadline - time.time()
             if remaining <= 0:
@@ -229,6 +235,8 @@ class TrainedModelTradeClient:
         if path.endswith("/predict_trade_candidates") or path == "/predict_trade_candidates":
             return url
         if not path or path == "/":
+            return url.rstrip("/") + "/predict_trade_candidates"
+        if self.provider in {"cerebrium", "cerebrium_full", "cerebrum"} and not path.endswith("/predict_trade_candidates"):
             return url.rstrip("/") + "/predict_trade_candidates"
         return url
 
