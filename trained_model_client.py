@@ -128,6 +128,7 @@ class TrainedModelTradeClient:
         data = None
         last_exc = None
         prediction_url = self._prediction_url()
+        tried_urls = set()
         for attempt in range(self.max_retries + 1):
             attempt_started = time.time()
             logger.info(
@@ -162,6 +163,14 @@ class TrainedModelTradeClient:
                 break
             except (requests.Timeout, requests.ConnectionError, requests.HTTPError) as exc:
                 last_exc = exc
+                status_code = getattr(getattr(exc, 'response', None), 'status_code', None)
+                if status_code == 404:
+                    alt_url = self._alternate_prediction_url(prediction_url)
+                    if alt_url and alt_url not in tried_urls:
+                        tried_urls.add(prediction_url)
+                        prediction_url = alt_url
+                        logger.warning("Trained model 404 on %s; retrying once with alternate url %s", tried_urls, prediction_url)
+                        continue
                 if attempt >= self.max_retries:
                     raise
                 sleep_seconds = self.backoff_seconds * (attempt + 1)
@@ -236,9 +245,17 @@ class TrainedModelTradeClient:
             return url
         if not path or path == "/":
             return url.rstrip("/") + "/predict_trade_candidates"
-        if self.provider in {"cerebrium", "cerebrium_full", "cerebrum"} and not path.endswith("/predict_trade_candidates"):
-            return url.rstrip("/") + "/predict_trade_candidates"
         return url
+
+    def _alternate_prediction_url(self, url: str) -> str | None:
+        raw = str(url or "").strip()
+        if not raw:
+            return None
+        if raw.endswith('/predict_trade_candidates'):
+            return raw[: -len('/predict_trade_candidates')]
+        if self.provider in {"cerebrium", "cerebrium_full", "cerebrum"}:
+            return raw.rstrip('/') + '/predict_trade_candidates'
+        return None
 
     def _health_url(self) -> str:
         url = (self.inference_url or "").strip()
