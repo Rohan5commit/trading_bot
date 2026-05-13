@@ -228,9 +228,41 @@ jobs:
           python wait_for_trained_model.py
           python warm_trained_model.py
 
+      - name: Verify Cerebrium predict endpoint
+        id: verify_cerebrium_predict
+        if: ${{ steps.install_base_dependencies.outcome == 'success' && !(github.event_name == 'workflow_dispatch' && inputs.run_in_lightning_studio) && ((github.event_name != 'workflow_dispatch') || (github.event_name == 'workflow_dispatch' && !inputs.disable_ai_trading)) && steps.plan_ai_runtime.outputs.runtime_mode == 'cerebrium_full' }}
+        continue-on-error: true
+        timeout-minutes: 3
+        env:
+          CEREBRIUM_INFERENCE_URL: ${{ secrets.CEREBRIUM_INFERENCE_URL }}
+          CEREBRIUM_API_KEY: ${{ secrets.CEREBRIUM_API_KEY || secrets.TRAINED_MODEL_API_KEY }}
+        run: |
+          python - <<'PYCODE'
+          import json, os, requests
+          url = (os.getenv('CEREBRIUM_INFERENCE_URL') or '').strip()
+          if not url:
+              raise SystemExit('CEREBRIUM_INFERENCE_URL is empty')
+          payload = {
+              'task': 'trade_signal_classification',
+              'candidates': [{'symbol':'AAPL','as_of_date':'2026-05-13','return_1d':0.01,'return_5d':0.02,'return_10d':0.03,'volatility_20d':0.02,'dist_ma_20':0.01,'dist_ma_50':0.02,'rsi_14':55,'volume_ratio':1.1,'news_count_7d':1,'news_sentiment_7d':0.1}]
+          }
+          headers = {'Content-Type':'application/json','Accept':'application/json'}
+          key = (os.getenv('CEREBRIUM_API_KEY') or '').strip()
+          if key:
+              headers['Authorization'] = f'Bearer {key}'
+          r = requests.post(url, json=payload, headers=headers, timeout=45)
+          print('status', r.status_code)
+          print((r.text or '')[:500])
+          r.raise_for_status()
+          data = r.json()
+          if not isinstance(data, dict) or not isinstance(data.get('signals'), list):
+              raise SystemExit('Predict response missing signals list')
+          print('predict preflight ok')
+          PYCODE
+
       - name: Run AI Trading Bot on Cerebrium
         id: run_ai_bot_cerebrium
-        if: ${{ steps.install_base_dependencies.outcome == 'success' && !(github.event_name == 'workflow_dispatch' && inputs.run_in_lightning_studio) && ((github.event_name != 'workflow_dispatch') || (github.event_name == 'workflow_dispatch' && !inputs.disable_ai_trading)) && steps.plan_ai_runtime.outputs.runtime_mode == 'cerebrium_full' }}
+        if: ${{ steps.install_base_dependencies.outcome == 'success' && !(github.event_name == 'workflow_dispatch' && inputs.run_in_lightning_studio) && ((github.event_name != 'workflow_dispatch') || (github.event_name == 'workflow_dispatch' && !inputs.disable_ai_trading)) && steps.plan_ai_runtime.outputs.runtime_mode == 'cerebrium_full' && steps.verify_cerebrium_predict.outcome == 'success' }}
         continue-on-error: true
         timeout-minutes: 90
         env:
@@ -323,7 +355,7 @@ jobs:
 
       - name: Run AI Trading Bot (Distilled Local Fallback)
         id: run_ai_bot_distilled_local
-        if: ${{ steps.install_base_dependencies.outcome == 'success' && !(github.event_name == 'workflow_dispatch' && inputs.run_in_lightning_studio) && ((github.event_name != 'workflow_dispatch') || (github.event_name == 'workflow_dispatch' && !inputs.disable_ai_trading)) && (steps.plan_ai_runtime.outputs.runtime_mode == 'distilled_local' || (steps.plan_ai_runtime.outputs.runtime_mode == 'cerebrium_full' && (steps.warm_cerebrium_inference.outcome == 'failure' || steps.run_ai_bot_cerebrium.outcome == 'failure')) || (steps.plan_ai_runtime.outputs.runtime_mode == 'lightning_full' && (steps.launch_lightning_inference.outcome == 'failure' || steps.run_ai_bot_in_lightning_studio.outcome == 'failure'))) }}
+        if: ${{ steps.install_base_dependencies.outcome == 'success' && !(github.event_name == 'workflow_dispatch' && inputs.run_in_lightning_studio) && ((github.event_name != 'workflow_dispatch') || (github.event_name == 'workflow_dispatch' && !inputs.disable_ai_trading)) && (steps.plan_ai_runtime.outputs.runtime_mode == 'distilled_local' || (steps.plan_ai_runtime.outputs.runtime_mode == 'cerebrium_full' && (steps.warm_cerebrium_inference.outcome == 'failure' || steps.verify_cerebrium_predict.outcome == 'failure' || steps.run_ai_bot_cerebrium.outcome == 'failure')) || (steps.plan_ai_runtime.outputs.runtime_mode == 'lightning_full' && (steps.launch_lightning_inference.outcome == 'failure' || steps.run_ai_bot_in_lightning_studio.outcome == 'failure'))) }}
         continue-on-error: true
         timeout-minutes: 60
         env:
