@@ -831,7 +831,7 @@ class DailyBacktester:
                 invested_notional = float((open_positions_now["entry_price"] * open_positions_now["quantity"]).sum() or 0.0)
             available_cash = float(current_capital) - invested_notional
 
-            period_start_core = self.tracker.get_performance_period_start()
+            period_start_core = self.core_tracker.get_performance_period_start()
             report = {
                 'date': test_date.date(),
                 'performance_period_start': period_start_core,
