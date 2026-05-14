@@ -77,7 +77,7 @@ class TrainedModelTradeClient:
         return self.model_name or self.inference_url or "trained-model-http"
 
     def is_ready(self) -> bool:
-        if self.backend not in {"http", "cerebrium", "cerebrium_full"}:
+        if self.backend not in {"http", "cerebrium", "cerebrium_full", "cerebrum"}:
             self.last_error = f"Unsupported trained model backend: {self.backend}. Use remote HTTP inference only."
             return False
         if not self.inference_url:
