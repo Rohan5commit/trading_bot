@@ -253,14 +253,34 @@ jobs:
           key = (os.getenv('CEREBRIUM_API_KEY') or '').strip()
           if key:
               headers['Authorization'] = f'Bearer {key}'
-          r = requests.post(url, json=payload, headers=headers, timeout=45)
-          print('status', r.status_code)
-          print((r.text or '')[:500])
-          r.raise_for_status()
-          data = r.json()
-          if not isinstance(data, dict) or not isinstance(data.get('signals'), list):
-              raise SystemExit('Predict response missing signals list')
-          print('predict preflight ok')
+          candidate_urls = [url]
+          if url.rstrip('/').endswith('/predict_trade_candidates'):
+              candidate_urls.append(url[: -len('/predict_trade_candidates')])
+          else:
+              candidate_urls.append(url.rstrip('/') + '/predict_trade_candidates')
+
+          last_error = None
+          for test_url in candidate_urls:
+              try:
+                  r = requests.post(test_url, json=payload, headers=headers, timeout=45)
+                  print('preflight url', test_url)
+                  print('status', r.status_code)
+                  print((r.text or '')[:500])
+                  r.raise_for_status()
+                  data = r.json()
+                  if not isinstance(data, dict):
+                      raise SystemExit('Predict response was not JSON object')
+                  has_signals = isinstance(data.get('signals'), list)
+                  has_signal = data.get('signal') is not None
+                  if not (has_signals or has_signal):
+                      raise SystemExit('Predict response missing signal/signals')
+                  print('predict preflight ok')
+                  break
+              except Exception as exc:
+                  last_error = exc
+                  print('preflight attempt failed:', exc)
+          else:
+              raise SystemExit(f'Predict preflight failed for all candidate URLs: {last_error}')
           PYCODE
 
       - name: Run AI Trading Bot on Cerebrium
@@ -480,6 +500,65 @@ jobs:
             models/
             model_registry.json
           key: ${{ runner.os }}-trading-bot-${{ github.run_id }}
+
+
+      - name: Ensure Daily Email Coverage
+        if: ${{ always() && !(github.event_name == 'workflow_dispatch' && inputs.run_in_lightning_studio) }}
+        continue-on-error: true
+        env:
+          SMTP_SERVER: ${{ secrets.SMTP_SERVER }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SENDER_EMAIL: ${{ secrets.SENDER_EMAIL }}
+          SENDER_PASSWORD: ${{ secrets.SENDER_PASSWORD }}
+          RECIPIENT_EMAIL: ${{ secrets.RECIPIENT_EMAIL }}
+          RUN_URL: ${{ format('{0}/{1}/actions/runs/{2}', github.server_url, github.repository, github.run_id) }}
+          CORE_EXPECTED: ${{ (github.event_name != 'workflow_dispatch') || (github.event_name == 'workflow_dispatch' && !inputs.disable_core_trading) }}
+          AI_EXPECTED: ${{ (github.event_name != 'workflow_dispatch') || (github.event_name == 'workflow_dispatch' && !inputs.disable_ai_trading) }}
+          BASE_DEPS_OUTCOME: ${{ steps.install_base_dependencies.outcome }}
+          CORE_OUTCOME: ${{ steps.run_core_bot.outcome }}
+          AI_RUNTIME_MODE: ${{ steps.plan_ai_runtime.outputs.runtime_mode }}
+          RUN_AI_CEREBRIUM_OUTCOME: ${{ steps.run_ai_bot_cerebrium.outcome }}
+          RUN_AI_STUDIO_OUTCOME: ${{ steps.run_ai_bot_in_lightning_studio.outcome }}
+          RUN_AI_DISTILLED_OUTCOME: ${{ steps.run_ai_bot_distilled_local.outcome }}
+        run: |
+          core_ok="false"
+          ai_ok="false"
+
+          if [ "${CORE_EXPECTED}" = "false" ]; then
+            core_ok="true"
+          elif [ "${CORE_OUTCOME}" = "success" ]; then
+            core_ok="true"
+          fi
+
+          if [ "${AI_EXPECTED}" = "false" ]; then
+            ai_ok="true"
+          elif [ "${AI_RUNTIME_MODE}" = "cerebrium_full" ] && [ "${RUN_AI_CEREBRIUM_OUTCOME}" = "success" -o "${RUN_AI_DISTILLED_OUTCOME}" = "success" ]; then
+            ai_ok="true"
+          elif [ "${AI_RUNTIME_MODE}" = "lightning_full" ] && [ "${RUN_AI_STUDIO_OUTCOME}" = "success" -o "${RUN_AI_DISTILLED_OUTCOME}" = "success" ]; then
+            ai_ok="true"
+          elif [ "${AI_RUNTIME_MODE}" = "distilled_local" ] && [ "${RUN_AI_DISTILLED_OUTCOME}" = "success" ]; then
+            ai_ok="true"
+          fi
+
+          if [ "${BASE_DEPS_OUTCOME}" != "success" ]; then
+            # Base dependency failure reports are emitted earlier; do not duplicate here.
+            exit 0
+          fi
+
+          if [ "${core_ok}" != "true" ]; then
+            python send_failure_report.py \
+              --strategy-tag Core \
+              --source "Email Coverage Guard" \
+              --message "Core report email was not confirmed from workflow outcomes. Run: ${RUN_URL}"
+          fi
+
+          if [ "${ai_ok}" != "true" ]; then
+            python send_failure_report.py \
+              --strategy-tag AI \
+              --source "Email Coverage Guard" \
+              --message "AI report email was not confirmed from workflow outcomes (fallback may also have failed). Run: ${RUN_URL}" \
+              --model-used "quant-trained-trading-model"
+          fi
 
       - name: Evaluate Scheduled/Runner Run Status
         if: ${{ always() && !(github.event_name == 'workflow_dispatch' && inputs.run_in_lightning_studio) }}
