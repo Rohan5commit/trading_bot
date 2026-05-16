@@ -302,6 +302,8 @@ def _predict_trades_from_client(
     neutral_predictions = 0
     neutral_breakouts = 0
     failures = []
+    has_open_positions = any(bool(str(c.get("current_position_side") or "").strip()) for c in prompt_candidates if isinstance(c, dict))
+    soft_cash_enabled = bool(ai_cfg.get("soft_cash_deploy_enabled", True))
     if isinstance(manager_context, dict) and manager_context:
         try:
             batch_predictions = client.predict_candidates(prompt_candidates, manager_context=manager_context)
@@ -325,7 +327,55 @@ def _predict_trades_from_client(
         reason = prediction.get("reason")
         if score == 0.0:
             neutral_predictions += 1
-            continue
+            breakout = _neutral_breakout_score(prediction, ai_cfg)
+            if breakout is None:
+                if soft_cash_enabled and not has_open_positions:
+                    probs = prediction.get("class_probabilities") if isinstance(prediction, dict) else None
+                    if isinstance(probs, dict):
+                        directional = []
+                        for lbl in _DIRECTIONAL_LABELS:
+                            try:
+                                directional.append((lbl, float(probs.get(lbl, 0.0) or 0.0)))
+                            except (TypeError, ValueError):
+                                directional.append((lbl, 0.0))
+                        best_label, best_prob = max(directional, key=lambda item: item[1])
+                        try:
+                            neutral_prob = float(probs.get("NEUTRAL", 0.0) or 0.0)
+                        except (TypeError, ValueError):
+                            neutral_prob = 0.0
+                        if best_prob >= 0.18 and (neutral_prob - best_prob) <= 0.20:
+                            neutral_breakouts += 1
+                            score = float(_LABEL_TO_SCORE.get(best_label, 0.0))
+                            confidence = max(confidence, min(0.99, best_prob))
+                            prediction = {
+                                **prediction,
+                                "label": best_label,
+                                "reason": prediction.get("reason")
+                                or (
+                                    f"Soft cash deployment bias: directional_prob={best_prob:.2f}, neutral_prob={neutral_prob:.2f}."
+                                ),
+                            }
+                            breakout = {
+                                "label": best_label,
+                                "score": float(_LABEL_TO_SCORE.get(best_label, 0.0)),
+                                "confidence": confidence,
+                                "directional_prob": best_prob,
+                                "neutral_prob": neutral_prob,
+                            }
+                if breakout is None:
+                    continue
+            neutral_breakouts += 1
+            score = float(breakout.get("score", 0.0) or 0.0)
+            confidence = max(confidence, float(breakout.get("confidence", confidence) or confidence))
+            prediction = {
+                **prediction,
+                "label": breakout.get("label") or prediction.get("label"),
+                "reason": prediction.get("reason")
+                or (
+                    f"Neutral breakout override: directional_prob={float(breakout.get('directional_prob', 0.0) or 0.0):.2f}, "
+                    f"neutral_prob={float(breakout.get('neutral_prob', 0.0) or 0.0):.2f}."
+                ),
+            }
 
         side = "LONG" if score > 0 else "SHORT"
 
