@@ -221,6 +221,8 @@ jobs:
           AI_PRIMARY_BACKEND: "cerebrium"
           CEREBRIUM_INFERENCE_URL: ${{ secrets.CEREBRIUM_INFERENCE_URL }}
           CEREBRIUM_API_KEY: ${{ secrets.CEREBRIUM_API_KEY || secrets.TRAINED_MODEL_API_KEY }}
+          TRAINED_MODEL_MAX_RETRIES: "2"
+          TRAINED_MODEL_BACKOFF_SECONDS: "10"
           TRAINED_MODEL_READY_TIMEOUT_SECONDS: "1800"
           TRAINED_MODEL_READY_POLL_SECONDS: "20"
           TRAINED_MODEL_TIMEOUT_SECONDS: "600"
@@ -257,26 +259,35 @@ jobs:
               candidate_urls.append(url.rstrip('/') + '/predict_trade_candidates')
 
           last_error = None
+          max_attempts = 3
+          preflight_ok = False
           for test_url in candidate_urls:
-              try:
-                  r = requests.post(test_url, json=payload, headers=headers, timeout=45)
-                  print('preflight url', test_url)
-                  print('status', r.status_code)
-                  print((r.text or '')[:500])
-                  r.raise_for_status()
-                  data = r.json()
-                  if not isinstance(data, dict):
-                      raise SystemExit('Predict response was not JSON object')
-                  has_signals = isinstance(data.get('signals'), list)
-                  has_signal = data.get('signal') is not None
-                  if not (has_signals or has_signal):
-                      raise SystemExit('Predict response missing signal/signals')
-                  print('predict preflight ok')
+              for attempt in range(1, max_attempts + 1):
+                  try:
+                      r = requests.post(test_url, json=payload, headers=headers, timeout=45)
+                      print('preflight url', test_url, 'attempt', attempt)
+                      print('status', r.status_code)
+                      print((r.text or '')[:500])
+                      r.raise_for_status()
+                      data = r.json()
+                      if not isinstance(data, dict):
+                          raise SystemExit('Predict response was not JSON object')
+                      has_signals = isinstance(data.get('signals'), list)
+                      has_signal = data.get('signal') is not None
+                      if not (has_signals or has_signal):
+                          raise SystemExit('Predict response missing signal/signals')
+                      print('predict preflight ok')
+                      preflight_ok = True
+                      break
+                  except Exception as exc:
+                      last_error = exc
+                      print('preflight attempt failed:', exc)
+                      if attempt < max_attempts:
+                          import time
+                          time.sleep(10 * attempt)
+              if preflight_ok:
                   break
-              except Exception as exc:
-                  last_error = exc
-                  print('preflight attempt failed:', exc)
-          else:
+          if not preflight_ok:
               raise SystemExit(f'Predict preflight failed for all candidate URLs: {last_error}')
           PYCODE
 
@@ -305,7 +316,8 @@ jobs:
           TRAINED_MODEL_TIMEOUT_SECONDS: "600"
           TRAINED_MODEL_READY_TIMEOUT_SECONDS: "1800"
           TRAINED_MODEL_READY_POLL_SECONDS: "20"
-          TRAINED_MODEL_MAX_RETRIES: "0"
+          TRAINED_MODEL_MAX_RETRIES: "2"
+          TRAINED_MODEL_BACKOFF_SECONDS: "10"
           TRAINED_MODEL_BATCH_SIZE: "4"
         run: |
           python main.py daily_job
