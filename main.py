@@ -1232,6 +1232,10 @@ class DailyBacktester:
                 if isinstance(ai_llm_status, dict):
                     ai_llm_status["entries_blocked_due_to_llm_error"] = True
             else:
+                skipped_reason = str((ai_llm_status or {}).get("skipped_reason") or "").strip().lower()
+                suppress_rotation_closes = skipped_reason in {"all_neutral", "no_action"} or bool(
+                    (ai_llm_status or {}).get("entries_blocked_due_to_llm_error")
+                )
                 target_map = {
                     str(trade.get("symbol") or "").strip().upper(): trade
                     for trade in ai_trades
@@ -1252,6 +1256,19 @@ class DailyBacktester:
                     if exec_price is None:
                         exec_price = _pyfloat(exec_row.get("close"))
                     if target is None or str(target.get("side") or "LONG").upper() != current_side:
+                        if suppress_rotation_closes and target is None:
+                            self.ai_tracker.update_position_decision(
+                                symbol,
+                                trade_date_str,
+                                decision_label="HOLD",
+                                decision_confidence=None,
+                                decision_reason=(
+                                    "AI rotation close suppressed because manager produced no actionable targets "
+                                    f"(skipped_reason={skipped_reason or 'none'})."
+                                ),
+                                target_price=_pyfloat(pos.get("entry_price")),
+                            )
+                            continue
                         if exec_price is None:
                             _record_pipeline_issue(
                                 pipeline_stats,
