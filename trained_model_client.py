@@ -245,6 +245,8 @@ class TrainedModelTradeClient:
             return url
         if not path or path == "/":
             return url.rstrip("/") + "/predict_trade_candidates"
+        if self.provider in {"cerebrium", "cerebrium_full", "cerebrum"} and not path.endswith("/predict_trade_candidates"):
+            return url.rstrip("/") + "/predict_trade_candidates"
         return url
 
     def _alternate_prediction_url(self, url: str) -> str | None:
