@@ -207,7 +207,14 @@ jobs:
         run: |
           mkdir -p results
           if [ "${{ steps.install_lightning_deps.outcome }}" != "success" ]; then
-            if [ -n "${CEREBRIUM_INFERENCE_URL}" ]; then
+            configured_inference_url="${CEREBRIUM_INFERENCE_URL}"
+            if [ -z "${configured_inference_url}" ]; then
+              configured_inference_url="${CEREBRIUM_TRAINED_MODEL_URL}"
+            fi
+            if [ -z "${configured_inference_url}" ]; then
+              configured_inference_url="${TRAINED_MODEL_INFERENCE_URL}"
+            fi
+            if [ -n "${configured_inference_url}" ]; then
               runtime_mode="cerebrium_full"
               selected_backend="cerebrium_full"
               reason="cerebrium_primary_lightning_dependencies_unavailable"
