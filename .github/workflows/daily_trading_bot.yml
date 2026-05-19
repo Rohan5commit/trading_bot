@@ -316,11 +316,54 @@ jobs:
           TRAINED_MODEL_READY_POLL_SECONDS: "20"
           TRAINED_MODEL_TIMEOUT_SECONDS: "600"
         run: |
-          if [ -n "${CEREBRIUM_INFERENCE_URL}" ] && [[ "${CEREBRIUM_INFERENCE_URL}" != */predict_trade_candidates ]]; then
-            export CEREBRIUM_INFERENCE_URL="${CEREBRIUM_INFERENCE_URL%/}/predict_trade_candidates"
-          fi
-          python wait_for_trained_model.py
-          python warm_trained_model.py
+          python - <<'PYCODE'
+          import os, time, requests
+          url = (os.getenv("CEREBRIUM_INFERENCE_URL") or "").strip()
+          if not url:
+              raise SystemExit("CEREBRIUM_INFERENCE_URL is empty")
+          key = (os.getenv("CEREBRIUM_API_KEY") or "").strip()
+          headers = {"Accept": "application/json"}
+          if key:
+              headers["Authorization"] = f"Bearer {key}"
+
+          roots = [url]
+          if url.rstrip("/").endswith("/predict_trade_candidates"):
+              roots.append(url[: -len("/predict_trade_candidates")])
+          else:
+              roots.append(url.rstrip("/") + "/predict_trade_candidates")
+
+          candidates = []
+          for item in roots:
+              base = item.rstrip("/")
+              if base.endswith("/predict_trade_candidates"):
+                  base = base[: -len("/predict_trade_candidates")]
+              candidates.extend([base + "/health", base + "/warmup"])
+
+          seen, endpoints = set(), []
+          for e in candidates:
+              if e not in seen:
+                  seen.add(e)
+                  endpoints.append(e)
+
+          last_error = None
+          for attempt in range(1, 8):
+              for endpoint in endpoints:
+                  try:
+                      if endpoint.endswith("/health"):
+                          r = requests.get(endpoint, headers=headers, timeout=30)
+                      else:
+                          r = requests.post(endpoint, headers=headers, timeout=120)
+                      if r.status_code < 500 and r.status_code != 404:
+                          print("warm endpoint ok:", endpoint, "status=", r.status_code)
+                          raise SystemExit(0)
+                      print("warm endpoint retryable:", endpoint, "status=", r.status_code, "body=", (r.text or "")[:240])
+                      last_error = RuntimeError(f"{endpoint} -> {r.status_code}")
+                  except Exception as exc:
+                      print("warm endpoint exception:", endpoint, str(exc))
+                      last_error = exc
+              time.sleep(min(20, 3 * attempt))
+          raise SystemExit(f"Cerebrium endpoint warmup failed across candidate URLs: {last_error}")
+          PYCODE
 
       - name: Verify Cerebrium predict endpoint
         id: verify_cerebrium_predict
