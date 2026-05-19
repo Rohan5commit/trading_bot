@@ -82,60 +82,17 @@ def _ai_view_text(row):
 
 
 def _manager_style_reason(pos):
-    """Generate a concise one-line rationale for AI entries in email output."""
+    """Return model-provided reason text for AI entries without rewriting."""
     if not isinstance(pos, dict):
         return ""
-    raw_reason = str(pos.get("reason") or "").strip()
-    if not raw_reason:
-        return ""
-    side = str(pos.get("side") or "LONG").upper()
-    conf = pos.get("decision_confidence", pos.get("confidence"))
-    alloc_pct = pos.get("allocation_pct")
-    try:
-        conf_txt = f"{float(conf):.2f}"
-    except (TypeError, ValueError):
-        conf_txt = "N/A"
-    try:
-        alloc_txt = f"{float(alloc_pct):.1f}%"
-    except (TypeError, ValueError):
-        alloc_txt = "N/A"
-
-    tokens = []
-    low = raw_reason.lower()
-    if "momentum" in low:
-        tokens.append("momentum continuation")
-    if "trend" in low:
-        tokens.append("trend persistence")
-    if "volume" in low:
-        tokens.append("volume confirmation")
-    if "rsi" in low:
-        tokens.append("RSI regime support")
-    if "feature balance" in low:
-        tokens.append("cross-factor alignment")
-    if not tokens:
-        tokens.append("multi-factor model signal")
-    thesis = ", ".join(tokens[:3])
-    direction = "Upside" if side == "LONG" else "Downside"
-    return f"{direction} thesis: {thesis}; conviction={conf_txt}; size={alloc_txt}."
+    return str(pos.get("decision_reason") or pos.get("reason") or "").strip()
 
 
 def _manager_style_close_reason(pos):
-    """Generate a concise one-line rationale for AI position exits in email output."""
+    """Return model-provided reason text for AI exits without rewriting."""
     if not isinstance(pos, dict):
         return ""
-    raw_reason = str(pos.get("reason") or "").strip()
-    side = str(pos.get("side") or "LONG").upper()
-    try:
-        pnl_pct = float(pos.get("realized_pnl", 0.0) or 0.0)
-        pnl_txt = f"{pnl_pct:+.2%}"
-    except (TypeError, ValueError):
-        pnl_txt = "N/A"
-    if "AI rotation" in raw_reason:
-        direction = "long" if side == "LONG" else "short"
-        return f"Portfolio rebalance exit: {direction} position rotated out after model target update; realized={pnl_txt}."
-    if raw_reason:
-        return f"Model-driven exit: {raw_reason}; realized={pnl_txt}."
-    return f"Model-driven exit executed; realized={pnl_txt}."
+    return str(pos.get("decision_reason") or pos.get("reason") or "").strip()
 
 
 class EmailNotifier:
@@ -216,12 +173,41 @@ class EmailNotifier:
         stocks_scanned_str = str(stocks_scanned_today) if stocks_scanned_today is not None else "N/A"
 
         # Build body without leading indentation (some email clients render leading spaces poorly).
+        period_start = str(report_data.get("performance_period_start") or "").strip()
+        period_label = f"Performance Period Since Last Reset: {period_start}" if period_start else "Performance Period Since Last Reset: N/A"
         body_lines = [
             "Daily Trading Bot Report",
             "========================",
             f"Date: {report_data['date']}",
+            period_label,
             "",
         ]
+
+        if str(subject_tag or "").strip().upper() == "AI" and isinstance(pipeline_stats, dict):
+            ai_status = pipeline_stats.get("ai_trading_llm_status")
+            if isinstance(ai_status, dict):
+                backend = str(ai_status.get("selected_backend") or ai_status.get("backend") or "unknown").strip() or "unknown"
+                provider = str(ai_status.get("backend_provider") or "").strip()
+                model = str(ai_status.get("model_used") or ai_status.get("model") or "unknown").strip() or "unknown"
+                fallback_from = str(ai_status.get("fallback_from_backend") or "").strip()
+                router_reason = str(ai_status.get("router_reason") or "").strip()
+                skipped_reason = str(ai_status.get("skipped_reason") or "").strip()
+                if provider and provider.lower() not in backend.lower():
+                    backend = f"{backend} ({provider})"
+                body_lines.extend([
+                    "AI RUNTIME",
+                    "-" * 40,
+                    f"Backend Used: {backend}",
+                    f"Model Used: {model}",
+                    f"Status: {'OK' if ai_status.get('ok') else 'ERROR'}",
+                ])
+                if fallback_from:
+                    body_lines.append(f"Fallback From: {fallback_from}")
+                if router_reason:
+                    body_lines.append(f"Router Reason: {router_reason}")
+                if skipped_reason:
+                    body_lines.append(f"Skipped Reason: {skipped_reason}")
+                body_lines.append("")
 
         if strategies:
             body_lines.append("This report includes multiple strategy accounts. See STRATEGY DETAILS below.")
@@ -258,7 +244,7 @@ class EmailNotifier:
             ])
             body_lines.append("")
 
-        if pipeline_stats:
+        if pipeline_stats and str(subject_tag or "").strip().upper() != "AI":
             body_lines.extend([
                 "PIPELINE SUMMARY",
                 "-" * 40,
@@ -410,13 +396,6 @@ class EmailNotifier:
                     body_lines.append("No open positions.")
             body_lines.append("")
 
-        if meta_insights and not strategies and str(subject_tag or "").strip().upper() == "AI":
-            body_lines.extend([
-                "META-LEARNER INSIGHTS",
-                "-" * 40,
-                str(meta_insights).strip(),
-                "",
-            ])
 
         ai_autonomous = _ai_autonomous_mode(report_data, pipeline_stats, subject_tag=subject_tag)
 
