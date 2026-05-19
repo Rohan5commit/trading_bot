@@ -555,6 +555,7 @@ jobs:
           python main.py daily_job
 
       - name: Send AI Failure Report
+        id: send_ai_failure_report
         if: ${{ always() && !(github.event_name == 'workflow_dispatch' && inputs.run_in_lightning_studio) && ((github.event_name != 'workflow_dispatch') || (github.event_name == 'workflow_dispatch' && !inputs.disable_ai_trading)) && (((steps.plan_ai_runtime.outputs.runtime_mode == 'cerebrium_full' && steps.validate_cerebrium_primary_config.outputs.has_inference_url == 'true') && (steps.warm_cerebrium_inference.outcome == 'failure' || steps.verify_cerebrium_predict.outcome == 'failure' || (steps.run_ai_bot_cerebrium.outcome == 'failure' && steps.run_ai_bot_cerebrium_retry.outcome != 'success'))) || ((steps.plan_ai_runtime.outputs.runtime_mode == 'lightning_full') && (steps.launch_lightning_inference.outcome == 'failure' || steps.run_ai_bot_in_lightning_studio.outcome == 'failure') && steps.run_ai_bot_distilled_local.outcome == 'failure' && steps.run_ai_bot_distilled_emergency_retry.outcome != 'success') || ((steps.plan_ai_runtime.outputs.runtime_mode == 'distilled_local') && steps.run_ai_bot_distilled_local.outcome == 'failure' && steps.run_ai_bot_distilled_emergency_retry.outcome != 'success')) }}
         continue-on-error: true
         env:
@@ -678,6 +679,7 @@ jobs:
           RUN_AI_STUDIO_OUTCOME: ${{ steps.run_ai_bot_in_lightning_studio.outcome }}
           RUN_AI_DISTILLED_OUTCOME: ${{ steps.run_ai_bot_distilled_local.outcome }}
           RUN_AI_DISTILLED_RETRY_OUTCOME: ${{ steps.run_ai_bot_distilled_emergency_retry.outcome }}
+          AI_FAILURE_REPORT_OUTCOME: ${{ steps.send_ai_failure_report.outcome }}
         run: |
           core_ok="false"
           ai_ok="false"
@@ -711,11 +713,13 @@ jobs:
           fi
 
           if [ "${ai_ok}" != "true" ]; then
-            python send_failure_report.py \
-              --strategy-tag AI \
-              --source "Email Coverage Guard" \
-              --message "AI report email was not confirmed from workflow outcomes (fallback may also have failed). Run: ${RUN_URL}" \
-              --model-used "quant-trained-trading-model"
+            if [ "${AI_FAILURE_REPORT_OUTCOME}" != "success" ]; then
+              python send_failure_report.py \
+                --strategy-tag AI \
+                --source "Email Coverage Guard" \
+                --message "AI report email was not confirmed from workflow outcomes (fallback may also have failed). Run: ${RUN_URL}" \
+                --model-used "quant-trained-trading-model"
+            fi
           fi
 
       - name: Evaluate Scheduled/Runner Run Status
