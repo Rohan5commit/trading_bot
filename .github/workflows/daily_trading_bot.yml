@@ -222,6 +222,9 @@ jobs:
             selected_backend="distilled_local"
             reason="cerebrium_inference_url_missing"
           fi
+          export runtime_mode
+          export selected_backend
+          export reason
           {
             echo "runtime_mode=${runtime_mode}"
             echo "selected_backend=${selected_backend}"
@@ -237,6 +240,12 @@ jobs:
         id: validate_cerebrium_primary_config
         if: ${{ steps.install_base_dependencies.outcome == 'success' && !(github.event_name == 'workflow_dispatch' && inputs.run_in_lightning_studio) && ((github.event_name != 'workflow_dispatch') || (github.event_name == 'workflow_dispatch' && !inputs.disable_ai_trading)) }}
         run: |
+          runtime_mode="${{ steps.plan_ai_runtime.outputs.runtime_mode }}"
+          selected_backend="${{ steps.plan_ai_runtime.outputs.selected_backend }}"
+          reason="${{ steps.plan_ai_runtime.outputs.reason }}"
+          export runtime_mode
+          export selected_backend
+          export reason
           configured_inference_url="${CEREBRIUM_INFERENCE_URL}"
           if [ -z "${configured_inference_url}" ]; then
             configured_inference_url="${CEREBRIUM_TRAINED_MODEL_URL}"
@@ -261,22 +270,6 @@ jobs:
           } >> "$GITHUB_OUTPUT"
           python -c 'import json, os, pathlib; payload={"runtime_mode": os.environ["runtime_mode"], "selected_backend": os.environ["selected_backend"], "selected_compute_name": "", "selected_disk_gb": 0, "reason": os.environ["reason"], "preflight": {"router_policy": "cerebrium_primary_then_distilled"}}; pathlib.Path("results/ai_runtime_plan.json").write_text(json.dumps(payload, indent=2)+"\n", encoding="utf-8"); print(json.dumps(payload, indent=2))'
           cat results/ai_runtime_plan.json
-
-      - name: Emit AI runtime decision
-        if: ${{ steps.install_base_dependencies.outcome == 'success' && !(github.event_name == 'workflow_dispatch' && inputs.run_in_lightning_studio) && ((github.event_name != 'workflow_dispatch') || (github.event_name == 'workflow_dispatch' && !inputs.disable_ai_trading)) }}
-        run: |
-          echo "AI runtime mode: ${{ steps.plan_ai_runtime.outputs.runtime_mode }}"
-          echo "AI backend: ${{ steps.plan_ai_runtime.outputs.selected_backend }}"
-          echo "AI reason: ${{ steps.plan_ai_runtime.outputs.reason }}"
-          echo "AI inference URL configured: ${{ steps.validate_cerebrium_config.outputs.has_inference_url }}"
-
-      - name: Emit AI runtime decision
-        if: ${{ steps.install_base_dependencies.outcome == 'success' && !(github.event_name == 'workflow_dispatch' && inputs.run_in_lightning_studio) && ((github.event_name != 'workflow_dispatch') || (github.event_name == 'workflow_dispatch' && !inputs.disable_ai_trading)) }}
-        run: |
-          echo "AI runtime mode: ${{ steps.plan_ai_runtime.outputs.runtime_mode }}"
-          echo "AI backend: ${{ steps.plan_ai_runtime.outputs.selected_backend }}"
-          echo "AI reason: ${{ steps.plan_ai_runtime.outputs.reason }}"
-          echo "AI inference URL configured: ${{ steps.validate_cerebrium_config.outputs.has_inference_url }}"
 
       - name: Emit AI runtime decision
         if: ${{ steps.install_base_dependencies.outcome == 'success' && !(github.event_name == 'workflow_dispatch' && inputs.run_in_lightning_studio) && ((github.event_name != 'workflow_dispatch') || (github.event_name == 'workflow_dispatch' && !inputs.disable_ai_trading)) }}
