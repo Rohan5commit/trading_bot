@@ -159,7 +159,7 @@ jobs:
           python main.py daily_job
 
       - name: Send Core Failure Report
-        if: ${{ always() && !(github.event_name == 'workflow_dispatch' && inputs.run_in_lightning_studio) && steps.run_core_bot.outcome == 'failure' }}
+        if: ${{ always() && !(github.event_name == 'workflow_dispatch' && inputs.run_in_lightning_studio) && steps.run_core_bot.outcome == 'failure' && steps.run_core_bot_retry.outcome != 'success' }}
         continue-on-error: true
         env:
           SMTP_SERVER: ${{ secrets.SMTP_SERVER }}
@@ -173,6 +173,25 @@ jobs:
             --strategy-tag Core \
             --source "Run Trading Bot" \
             --message "Core daily job failed before sending its report email. Run: ${RUN_URL}"
+
+      - name: Run Trading Bot (Core Retry)
+        id: run_core_bot_retry
+        if: ${{ always() && steps.install_base_dependencies.outcome == 'success' && !(github.event_name == 'workflow_dispatch' && inputs.run_in_lightning_studio) && !inputs.disable_core_trading && steps.run_core_bot.outcome == 'failure' }}
+        continue-on-error: true
+        timeout-minutes: 45
+        env:
+          SMTP_SERVER: ${{ secrets.SMTP_SERVER }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SENDER_EMAIL: ${{ secrets.SENDER_EMAIL }}
+          SENDER_PASSWORD: ${{ secrets.SENDER_PASSWORD }}
+          RECIPIENT_EMAIL: ${{ secrets.RECIPIENT_EMAIL }}
+          TRAINED_MODEL_API_KEY: ${{ secrets.TRAINED_MODEL_API_KEY }}
+          TWELVEDATA_API_KEYS: ${{ secrets.TWELVEDATA_API_KEYS }}
+          ARM_LIVE_TRADING: ${{ secrets.ARM_LIVE_TRADING }}
+          LOG_LEVEL: ${{ secrets.LOG_LEVEL }}
+          DISABLE_AI_TRADING: "1"
+        run: |
+          python main.py daily_job
 
       - name: Install Lightning dependencies
         id: install_lightning_deps
@@ -323,6 +342,37 @@ jobs:
           TRAINED_MODEL_BACKOFF_SECONDS: "10"
           TRAINED_MODEL_BATCH_SIZE: "4"
         run: |
+          python main.py daily_job
+
+      - name: Run AI Trading Bot on Cerebrium (Retry)
+        id: run_ai_bot_cerebrium_retry
+        if: ${{ always() && steps.install_base_dependencies.outcome == 'success' && !(github.event_name == 'workflow_dispatch' && inputs.run_in_lightning_studio) && ((github.event_name != 'workflow_dispatch') || (github.event_name == 'workflow_dispatch' && !inputs.disable_ai_trading)) && steps.plan_ai_runtime.outputs.runtime_mode == 'cerebrium_full' && steps.verify_cerebrium_predict.outcome == 'success' && steps.run_ai_bot_cerebrium.outcome == 'failure' }}
+        continue-on-error: true
+        timeout-minutes: 90
+        env:
+          SMTP_SERVER: ${{ secrets.SMTP_SERVER }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SENDER_EMAIL: ${{ secrets.SENDER_EMAIL }}
+          SENDER_PASSWORD: ${{ secrets.SENDER_PASSWORD }}
+          RECIPIENT_EMAIL: ${{ secrets.RECIPIENT_EMAIL }}
+          CEREBRIUM_INFERENCE_URL: ${{ secrets.CEREBRIUM_INFERENCE_URL }}
+          CEREBRIUM_API_KEY: ${{ secrets.CEREBRIUM_API_KEY || secrets.TRAINED_MODEL_API_KEY }}
+          TRAINED_MODEL_API_KEY: ${{ secrets.TRAINED_MODEL_API_KEY }}
+          TWELVEDATA_API_KEYS: ${{ secrets.TWELVEDATA_API_KEYS }}
+          ARM_LIVE_TRADING: ${{ secrets.ARM_LIVE_TRADING }}
+          LOG_LEVEL: ${{ secrets.LOG_LEVEL }}
+          DISABLE_CORE_TRADING: "1"
+          AI_RUNTIME_MODE: "full"
+          AI_PRIMARY_BACKEND: "cerebrium"
+          AI_ROUTER_REASON: "cerebrium_retry_after_failure"
+          AI_PROMPT_CANDIDATES_LIMIT: "200"
+          TRAINED_MODEL_TIMEOUT_SECONDS: "600"
+          TRAINED_MODEL_READY_TIMEOUT_SECONDS: "1800"
+          TRAINED_MODEL_READY_POLL_SECONDS: "20"
+          TRAINED_MODEL_MAX_RETRIES: "2"
+          TRAINED_MODEL_BACKOFF_SECONDS: "10"
+          TRAINED_MODEL_BATCH_SIZE: "4"
+        run: |
           if [ -n "${CEREBRIUM_INFERENCE_URL}" ] && [[ "${CEREBRIUM_INFERENCE_URL}" != */predict_trade_candidates ]]; then
             export CEREBRIUM_INFERENCE_URL="${CEREBRIUM_INFERENCE_URL%/}/predict_trade_candidates"
           fi
@@ -393,7 +443,7 @@ jobs:
 
       - name: Run AI Trading Bot (Distilled Local Fallback)
         id: run_ai_bot_distilled_local
-        if: ${{ steps.install_base_dependencies.outcome == 'success' && !(github.event_name == 'workflow_dispatch' && inputs.run_in_lightning_studio) && ((github.event_name != 'workflow_dispatch') || (github.event_name == 'workflow_dispatch' && !inputs.disable_ai_trading)) && (steps.plan_ai_runtime.outputs.runtime_mode == 'distilled_local' || (steps.plan_ai_runtime.outputs.runtime_mode == 'cerebrium_full' && (steps.warm_cerebrium_inference.outcome == 'failure' || steps.verify_cerebrium_predict.outcome == 'failure' || steps.run_ai_bot_cerebrium.outcome == 'failure')) || (steps.plan_ai_runtime.outputs.runtime_mode == 'lightning_full' && (steps.launch_lightning_inference.outcome == 'failure' || steps.run_ai_bot_in_lightning_studio.outcome == 'failure'))) }}
+        if: ${{ steps.install_base_dependencies.outcome == 'success' && !(github.event_name == 'workflow_dispatch' && inputs.run_in_lightning_studio) && ((github.event_name != 'workflow_dispatch') || (github.event_name == 'workflow_dispatch' && !inputs.disable_ai_trading)) && (steps.plan_ai_runtime.outputs.runtime_mode == 'distilled_local' || (steps.plan_ai_runtime.outputs.runtime_mode == 'cerebrium_full' && (steps.warm_cerebrium_inference.outcome == 'failure' || steps.verify_cerebrium_predict.outcome == 'failure' || (steps.run_ai_bot_cerebrium.outcome == 'failure' && steps.run_ai_bot_cerebrium_retry.outcome != 'success'))) || (steps.plan_ai_runtime.outputs.runtime_mode == 'lightning_full' && (steps.launch_lightning_inference.outcome == 'failure' || steps.run_ai_bot_in_lightning_studio.outcome == 'failure'))) }}
         continue-on-error: true
         timeout-minutes: 60
         env:
@@ -438,7 +488,7 @@ jobs:
           python main.py daily_job
 
       - name: Send AI Failure Report
-        if: ${{ always() && !(github.event_name == 'workflow_dispatch' && inputs.run_in_lightning_studio) && ((github.event_name != 'workflow_dispatch') || (github.event_name == 'workflow_dispatch' && !inputs.disable_ai_trading)) && (((steps.plan_ai_runtime.outputs.runtime_mode == 'cerebrium_full') && (steps.warm_cerebrium_inference.outcome == 'failure' || steps.verify_cerebrium_predict.outcome == 'failure' || steps.run_ai_bot_cerebrium.outcome == 'failure') && steps.run_ai_bot_distilled_local.outcome == 'failure' && steps.run_ai_bot_distilled_retry.outcome != 'success') || ((steps.plan_ai_runtime.outputs.runtime_mode == 'lightning_full') && (steps.launch_lightning_inference.outcome == 'failure' || steps.run_ai_bot_in_lightning_studio.outcome == 'failure') && steps.run_ai_bot_distilled_local.outcome == 'failure' && steps.run_ai_bot_distilled_retry.outcome != 'success') || ((steps.plan_ai_runtime.outputs.runtime_mode == 'distilled_local') && steps.run_ai_bot_distilled_local.outcome == 'failure' && steps.run_ai_bot_distilled_retry.outcome != 'success')) }}
+        if: ${{ always() && !(github.event_name == 'workflow_dispatch' && inputs.run_in_lightning_studio) && ((github.event_name != 'workflow_dispatch') || (github.event_name == 'workflow_dispatch' && !inputs.disable_ai_trading)) && (((steps.plan_ai_runtime.outputs.runtime_mode == 'cerebrium_full') && (steps.warm_cerebrium_inference.outcome == 'failure' || steps.verify_cerebrium_predict.outcome == 'failure' || (steps.run_ai_bot_cerebrium.outcome == 'failure' && steps.run_ai_bot_cerebrium_retry.outcome != 'success')) && steps.run_ai_bot_distilled_local.outcome == 'failure' && steps.run_ai_bot_distilled_retry.outcome != 'success') || ((steps.plan_ai_runtime.outputs.runtime_mode == 'lightning_full') && (steps.launch_lightning_inference.outcome == 'failure' || steps.run_ai_bot_in_lightning_studio.outcome == 'failure') && steps.run_ai_bot_distilled_local.outcome == 'failure' && steps.run_ai_bot_distilled_retry.outcome != 'success') || ((steps.plan_ai_runtime.outputs.runtime_mode == 'distilled_local') && steps.run_ai_bot_distilled_local.outcome == 'failure' && steps.run_ai_bot_distilled_retry.outcome != 'success')) }}
         continue-on-error: true
         env:
           SMTP_SERVER: ${{ secrets.SMTP_SERVER }}
@@ -454,6 +504,7 @@ jobs:
           WARM_CEREBRIUM_OUTCOME: ${{ steps.warm_cerebrium_inference.outcome }}
           VERIFY_CEREBRIUM_OUTCOME: ${{ steps.verify_cerebrium_predict.outcome }}
           RUN_AI_CEREBRIUM_OUTCOME: ${{ steps.run_ai_bot_cerebrium.outcome }}
+          RUN_AI_CEREBRIUM_RETRY_OUTCOME: ${{ steps.run_ai_bot_cerebrium_retry.outcome }}
           RUN_AI_DISTILLED_OUTCOME: ${{ steps.run_ai_bot_distilled_local.outcome }}
           RUN_AI_DISTILLED_RETRY_OUTCOME: ${{ steps.run_ai_bot_distilled_retry.outcome }}
         run: |
@@ -553,8 +604,10 @@ jobs:
           AI_EXPECTED: ${{ (github.event_name != 'workflow_dispatch') || (github.event_name == 'workflow_dispatch' && !inputs.disable_ai_trading) }}
           BASE_DEPS_OUTCOME: ${{ steps.install_base_dependencies.outcome }}
           CORE_OUTCOME: ${{ steps.run_core_bot.outcome }}
+          CORE_RETRY_OUTCOME: ${{ steps.run_core_bot_retry.outcome }}
           AI_RUNTIME_MODE: ${{ steps.plan_ai_runtime.outputs.runtime_mode }}
           RUN_AI_CEREBRIUM_OUTCOME: ${{ steps.run_ai_bot_cerebrium.outcome }}
+          RUN_AI_CEREBRIUM_RETRY_OUTCOME: ${{ steps.run_ai_bot_cerebrium_retry.outcome }}
           RUN_AI_STUDIO_OUTCOME: ${{ steps.run_ai_bot_in_lightning_studio.outcome }}
           RUN_AI_DISTILLED_OUTCOME: ${{ steps.run_ai_bot_distilled_local.outcome }}
           RUN_AI_DISTILLED_RETRY_OUTCOME: ${{ steps.run_ai_bot_distilled_retry.outcome }}
@@ -564,13 +617,13 @@ jobs:
 
           if [ "${CORE_EXPECTED}" = "false" ]; then
             core_ok="true"
-          elif [ "${CORE_OUTCOME}" = "success" ]; then
+          elif [ "${CORE_OUTCOME}" = "success" -o "${CORE_RETRY_OUTCOME}" = "success" ]; then
             core_ok="true"
           fi
 
           if [ "${AI_EXPECTED}" = "false" ]; then
             ai_ok="true"
-          elif [ "${AI_RUNTIME_MODE}" = "cerebrium_full" ] && [ "${RUN_AI_CEREBRIUM_OUTCOME}" = "success" -o "${RUN_AI_DISTILLED_OUTCOME}" = "success" -o "${RUN_AI_DISTILLED_RETRY_OUTCOME}" = "success" ]; then
+          elif [ "${AI_RUNTIME_MODE}" = "cerebrium_full" ] && [ "${RUN_AI_CEREBRIUM_OUTCOME}" = "success" -o "${RUN_AI_CEREBRIUM_RETRY_OUTCOME}" = "success" -o "${RUN_AI_DISTILLED_OUTCOME}" = "success" -o "${RUN_AI_DISTILLED_RETRY_OUTCOME}" = "success" ]; then
             ai_ok="true"
           elif [ "${AI_RUNTIME_MODE}" = "lightning_full" ] && [ "${RUN_AI_STUDIO_OUTCOME}" = "success" -o "${RUN_AI_DISTILLED_OUTCOME}" = "success" -o "${RUN_AI_DISTILLED_RETRY_OUTCOME}" = "success" ]; then
             ai_ok="true"
@@ -603,6 +656,7 @@ jobs:
         env:
           BASE_DEPS_OUTCOME: ${{ steps.install_base_dependencies.outcome }}
           CORE_OUTCOME: ${{ steps.run_core_bot.outcome }}
+          CORE_RETRY_OUTCOME: ${{ steps.run_core_bot_retry.outcome }}
           CORE_EXPECTED: ${{ (github.event_name != 'workflow_dispatch') || (github.event_name == 'workflow_dispatch' && !inputs.disable_core_trading) }}
           AI_EXPECTED: ${{ (github.event_name != 'workflow_dispatch') || (github.event_name == 'workflow_dispatch' && !inputs.disable_ai_trading) }}
           INSTALL_LIGHTNING_OUTCOME: ${{ steps.install_lightning_deps.outcome }}
@@ -612,6 +666,7 @@ jobs:
           WARM_CEREBRIUM_OUTCOME: ${{ steps.warm_cerebrium_inference.outcome }}
           VERIFY_CEREBRIUM_OUTCOME: ${{ steps.verify_cerebrium_predict.outcome }}
           RUN_AI_CEREBRIUM_OUTCOME: ${{ steps.run_ai_bot_cerebrium.outcome }}
+          RUN_AI_CEREBRIUM_RETRY_OUTCOME: ${{ steps.run_ai_bot_cerebrium_retry.outcome }}
           RUN_AI_DISTILLED_OUTCOME: ${{ steps.run_ai_bot_distilled_local.outcome }}
           RUN_AI_DISTILLED_RETRY_OUTCOME: ${{ steps.run_ai_bot_distilled_retry.outcome }}
         run: |
@@ -620,8 +675,8 @@ jobs:
             echo "Base dependency install failed: ${BASE_DEPS_OUTCOME}"
             rc=1
           fi
-          if [ "${BASE_DEPS_OUTCOME}" = "success" ] && [ "${CORE_EXPECTED}" = "true" ] && [ "${CORE_OUTCOME}" != "success" ]; then
-            echo "Core path failed: ${CORE_OUTCOME}"
+          if [ "${BASE_DEPS_OUTCOME}" = "success" ] && [ "${CORE_EXPECTED}" = "true" ] && [ "${CORE_OUTCOME}" != "success" ] && [ "${CORE_RETRY_OUTCOME}" != "success" ]; then
+            echo "Core path failed: initial=${CORE_OUTCOME}, retry=${CORE_RETRY_OUTCOME}"
             rc=1
           fi
           if [ "${BASE_DEPS_OUTCOME}" = "success" ] && [ "${AI_EXPECTED}" = "true" ]; then
@@ -638,8 +693,8 @@ jobs:
                   rc=1
                 fi
               fi
-              if [ "${WARM_CEREBRIUM_OUTCOME}" = "success" ] && [ "${VERIFY_CEREBRIUM_OUTCOME}" = "success" ] && [ "${RUN_AI_CEREBRIUM_OUTCOME}" != "success" ]; then
-                echo "AI Cerebrium run failed: ${RUN_AI_CEREBRIUM_OUTCOME}"
+              if [ "${WARM_CEREBRIUM_OUTCOME}" = "success" ] && [ "${VERIFY_CEREBRIUM_OUTCOME}" = "success" ] && [ "${RUN_AI_CEREBRIUM_OUTCOME}" != "success" ] && [ "${RUN_AI_CEREBRIUM_RETRY_OUTCOME}" != "success" ]; then
+                echo "AI Cerebrium run failed: initial=${RUN_AI_CEREBRIUM_OUTCOME}, retry=${RUN_AI_CEREBRIUM_RETRY_OUTCOME}"
                 if [ "${RUN_AI_DISTILLED_OUTCOME}" != "success" ] && [ "${RUN_AI_DISTILLED_RETRY_OUTCOME}" != "success" ]; then
                   rc=1
                 fi
