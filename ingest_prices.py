@@ -128,29 +128,37 @@ class PriceIngestor:
                 tickers.append(c)
                 seen.add(c)
         
-        try:
-            for tkr in tickers:
-                stooq_symbol = f"{tkr}.us"
-                url = f"https://stooq.com/q/d/l/?s={stooq_symbol}&f=sd2t2ohlcv&h&e=csv"
-                logger.info(f"Downloading {symbol} from Stooq (s={stooq_symbol})...")
+        for tkr in tickers:
+            stooq_symbol = f"{tkr}.us"
+            url = f"https://stooq.com/q/d/l/?s={stooq_symbol}&f=sd2t2ohlcv&h&e=csv"
+            logger.info(f"Downloading {symbol} from Stooq (s={stooq_symbol})...")
+            try:
                 response = requests.get(url, timeout=15)
                 response.raise_for_status()
 
                 if "No data" in response.text or len(response.text) < 50:
                     continue
 
-                df = pd.read_csv(StringIO(response.text))
+                df = pd.read_csv(StringIO(response.text), on_bad_lines="skip")
                 df.columns = [c.lower() for c in df.columns]
+                required = {"date", "open", "high", "low", "close", "volume"}
+                if not required.issubset(set(df.columns)):
+                    logger.warning(
+                        "Stooq returned unexpected columns for %s (s=%s): %s",
+                        symbol,
+                        stooq_symbol,
+                        ",".join(df.columns),
+                    )
+                    continue
                 # Preserve canonical symbol as provided by universe file (usually uppercase).
                 df['symbol'] = str(symbol or "").strip().upper()
                 return df[['symbol', 'date', 'open', 'high', 'low', 'close', 'volume']]
+            except Exception as e:
+                logger.warning("Stooq fetch attempt failed for %s (s=%s): %s", symbol, stooq_symbol, e)
+                continue
 
-            logger.warning(f"No data found for {symbol} (tried: {', '.join([f'{t}.us' for t in tickers])})")
-            return None
-            
-        except Exception as e:
-            logger.error(f"Failed to fetch {symbol} from Stooq: {e}")
-            return None
+        logger.warning(f"No data found for {symbol} (tried: {', '.join([f'{t}.us' for t in tickers])})")
+        return None
 
     def fetch_stooq_latest(self, symbol):
         """
@@ -186,7 +194,7 @@ class PriceIngestor:
                 text = response.text.strip()
                 if "No data" in text or len(text.splitlines()) < 2:
                     continue
-                df = pd.read_csv(StringIO(text))
+                df = pd.read_csv(StringIO(text), on_bad_lines="skip")
                 df.columns = [c.lower() for c in df.columns]
                 # Expected columns: symbol,date,time,open,high,low,close,volume
                 if "date" not in df.columns:
