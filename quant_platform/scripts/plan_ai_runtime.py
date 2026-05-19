@@ -28,7 +28,12 @@ def _load_router_config() -> dict:
 
 def choose_runtime() -> dict:
     router_cfg = _load_router_config()
-    cerebrium_url = str(os.getenv("CEREBRIUM_INFERENCE_URL") or os.getenv("CEREBRIUM_TRAINED_MODEL_URL") or "").strip()
+    cerebrium_url = str(
+        os.getenv("CEREBRIUM_INFERENCE_URL")
+        or os.getenv("CEREBRIUM_TRAINED_MODEL_URL")
+        or os.getenv("TRAINED_MODEL_INFERENCE_URL")
+        or ""
+    ).strip()
     if cerebrium_url:
         return {
             "runtime_mode": "cerebrium_full",
