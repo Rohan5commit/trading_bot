@@ -831,8 +831,10 @@ class DailyBacktester:
                 invested_notional = float((open_positions_now["entry_price"] * open_positions_now["quantity"]).sum() or 0.0)
             available_cash = float(current_capital) - invested_notional
 
+            period_start_core = self.core_tracker.get_performance_period_start()
             report = {
                 'date': test_date.date(),
+                'performance_period_start': period_start_core,
                 'new_positions_opened': len(new_positions),
                 'positions_topped_up': len(top_up_positions),
                 'positions_closed_at_tp': len(closed_positions),
@@ -1230,6 +1232,10 @@ class DailyBacktester:
                 if isinstance(ai_llm_status, dict):
                     ai_llm_status["entries_blocked_due_to_llm_error"] = True
             else:
+                skipped_reason = str((ai_llm_status or {}).get("skipped_reason") or "").strip().lower()
+                suppress_rotation_closes = skipped_reason in {"all_neutral", "no_action"} or bool(
+                    (ai_llm_status or {}).get("entries_blocked_due_to_llm_error")
+                )
                 target_map = {
                     str(trade.get("symbol") or "").strip().upper(): trade
                     for trade in ai_trades
@@ -1250,6 +1256,19 @@ class DailyBacktester:
                     if exec_price is None:
                         exec_price = _pyfloat(exec_row.get("close"))
                     if target is None or str(target.get("side") or "LONG").upper() != current_side:
+                        if suppress_rotation_closes and target is None:
+                            self.ai_tracker.update_position_decision(
+                                symbol,
+                                trade_date_str,
+                                decision_label="HOLD",
+                                decision_confidence=None,
+                                decision_reason=(
+                                    "AI rotation close suppressed because manager produced no actionable targets "
+                                    f"(skipped_reason={skipped_reason or 'none'})."
+                                ),
+                                target_price=_pyfloat(pos.get("entry_price")),
+                            )
+                            continue
                         if exec_price is None:
                             _record_pipeline_issue(
                                 pipeline_stats,
@@ -1414,8 +1433,10 @@ class DailyBacktester:
                 ai_llm_status["positions_closed_by_ai"] = len(ai_closed)
                 ai_llm_status["positions_topped_up"] = len(ai_topups)
 
+            period_start_ai = self.ai_tracker.get_performance_period_start()
             ai_report = {
                 "date": test_date.date(),
+                "performance_period_start": period_start_ai,
                 "new_positions_opened": len(ai_new),
                 "positions_topped_up": len(ai_topups),
                 "positions_closed_at_tp": len(ai_closed),
@@ -1491,17 +1512,32 @@ class DailyBacktester:
 
         ai_email_sent = True
         if ai_report is not None:
+            backend_provider = str(ai_llm_status.get('backend_provider') or '').strip()
+            selected_backend = str(ai_llm_status.get('selected_backend') or ai_llm_status.get('backend') or '').strip()
+            model_used = str(ai_llm_status.get('model_used') or ai_llm_status.get('model') or '').strip()
+            fallback_from_backend = str(ai_llm_status.get('fallback_from_backend') or '').strip()
+            backend_summary = selected_backend or backend_provider or "unknown"
+            if backend_provider and backend_provider.lower() not in backend_summary.lower():
+                backend_summary = f"{backend_summary} ({backend_provider})"
             if ai_llm_status.get("ok"):
                 ai_insight = (
                     "AI trading engine status: OK"
                     f" | mode={ai_llm_status.get('manager_mode') or 'unknown'}"
+                    f" | backend={backend_summary}"
+                    f" | model={model_used or 'unknown'}"
                     f" | target_positions={ai_llm_status.get('target_positions', 0)}"
                     f" | closed={ai_llm_status.get('positions_closed_by_ai', 0)}"
                     f" | opened={ai_llm_status.get('positions_opened', 0)}"
                     f" | topped_up={ai_llm_status.get('positions_topped_up', 0)}"
                 )
+                if fallback_from_backend:
+                    ai_insight += f" | fallback_from={fallback_from_backend}"
             else:
-                ai_insight = f"AI trading engine status: ERROR - {ai_llm_status.get('error')}"
+                ai_insight = (
+                    f"AI trading engine status: ERROR - {ai_llm_status.get('error')}"
+                    f" | backend={backend_summary}"
+                    f" | model={model_used or 'unknown'}"
+                )
             ai_email_positions = list(ai_new) + list(ai_topups)
             ai_email_sent = notifier.send_daily_report(
                 report_data=ai_report,

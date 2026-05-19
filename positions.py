@@ -532,6 +532,18 @@ class PositionTracker:
         conn.close()
         return open_positions
 
+    def get_performance_period_start(self):
+        """Best-effort period start date since the last reset for this table."""
+        conn = sqlite3.connect(self.db_path)
+        try:
+            row = conn.execute(
+                f"SELECT MIN(COALESCE(entry_date, '')) FROM {self.table_name} WHERE COALESCE(entry_date, '') <> ''"
+            ).fetchone()
+            value = row[0] if row else None
+            return str(value).strip() if value else None
+        finally:
+            conn.close()
+
     def get_portfolio_summary(self):
         """Get summary of all positions (open and closed)"""
         conn = sqlite3.connect(self.db_path)
