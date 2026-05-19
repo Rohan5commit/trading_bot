@@ -430,6 +430,7 @@ jobs:
         run: |
           python main.py daily_job
 
+      - name: Launch Lightning inference studio
         id: launch_lightning_inference
         if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.run_in_lightning_studio) && ((github.event_name != 'workflow_dispatch') || (github.event_name == 'workflow_dispatch' && !inputs.disable_ai_trading)) && steps.plan_ai_runtime.outputs.runtime_mode == 'lightning_full' && steps.install_lightning_deps.outcome == 'success' }}
         continue-on-error: true
