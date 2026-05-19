@@ -206,37 +206,31 @@ jobs:
         if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.run_in_lightning_studio) && ((github.event_name != 'workflow_dispatch') || (github.event_name == 'workflow_dispatch' && !inputs.disable_ai_trading)) }}
         run: |
           mkdir -p results
-          if [ "${{ steps.install_lightning_deps.outcome }}" != "success" ]; then
-            configured_inference_url="${CEREBRIUM_INFERENCE_URL}"
-            if [ -z "${configured_inference_url}" ]; then
-              configured_inference_url="${CEREBRIUM_TRAINED_MODEL_URL}"
-            fi
-            if [ -z "${configured_inference_url}" ]; then
-              configured_inference_url="${TRAINED_MODEL_INFERENCE_URL}"
-            fi
-            if [ -n "${configured_inference_url}" ]; then
-              runtime_mode="cerebrium_full"
-              selected_backend="cerebrium_full"
-              reason="cerebrium_primary_lightning_dependencies_unavailable"
-            else
-              runtime_mode="distilled_local"
-              selected_backend="distilled_local"
-              reason="lightning_dependencies_unavailable"
-            fi
-            {
-              echo "runtime_mode=${runtime_mode}"
-              echo "selected_backend=${selected_backend}"
-              echo "selected_compute_name="
-              echo "selected_disk_gb=0"
-              echo "reason=${reason}"
-            } >> "$GITHUB_OUTPUT"
-            python -c 'import json, os, pathlib; payload={"runtime_mode": os.environ["runtime_mode"], "selected_backend": os.environ["selected_backend"], "selected_compute_name": "", "selected_disk_gb": 0, "reason": os.environ["reason"], "preflight": {"install_lightning_deps_outcome": "failure"}}; pathlib.Path("results/ai_runtime_plan.json").write_text(json.dumps(payload, indent=2)+"\n", encoding="utf-8"); print(json.dumps(payload, indent=2))'
-            cat results/ai_runtime_plan.json
-          else
-            python quant_platform/scripts/plan_ai_runtime.py \
-              --json-out results/ai_runtime_plan.json \
-              --github-output "$GITHUB_OUTPUT"
+          configured_inference_url="${CEREBRIUM_INFERENCE_URL}"
+          if [ -z "${configured_inference_url}" ]; then
+            configured_inference_url="${CEREBRIUM_TRAINED_MODEL_URL}"
           fi
+          if [ -z "${configured_inference_url}" ]; then
+            configured_inference_url="${TRAINED_MODEL_INFERENCE_URL}"
+          fi
+          if [ -n "${configured_inference_url}" ]; then
+            runtime_mode="cerebrium_full"
+            selected_backend="cerebrium_full"
+            reason="cerebrium_primary_configured"
+          else
+            runtime_mode="distilled_local"
+            selected_backend="distilled_local"
+            reason="cerebrium_inference_url_missing"
+          fi
+          {
+            echo "runtime_mode=${runtime_mode}"
+            echo "selected_backend=${selected_backend}"
+            echo "selected_compute_name="
+            echo "selected_disk_gb=0"
+            echo "reason=${reason}"
+          } >> "$GITHUB_OUTPUT"
+          python -c 'import json, os, pathlib; payload={"runtime_mode": os.environ["runtime_mode"], "selected_backend": os.environ["selected_backend"], "selected_compute_name": "", "selected_disk_gb": 0, "reason": os.environ["reason"], "preflight": {"router_policy": "cerebrium_primary_then_distilled"}}; pathlib.Path("results/ai_runtime_plan.json").write_text(json.dumps(payload, indent=2)+"\n", encoding="utf-8"); print(json.dumps(payload, indent=2))'
+          cat results/ai_runtime_plan.json
 
       - name: Warm Cerebrium inference app
         id: warm_cerebrium_inference
