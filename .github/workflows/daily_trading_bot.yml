@@ -253,6 +253,9 @@ jobs:
           TRAINED_MODEL_READY_POLL_SECONDS: "20"
           TRAINED_MODEL_TIMEOUT_SECONDS: "600"
         run: |
+          if [ -n "${CEREBRIUM_INFERENCE_URL}" ] && [[ "${CEREBRIUM_INFERENCE_URL}" != */predict_trade_candidates ]]; then
+            export CEREBRIUM_INFERENCE_URL="${CEREBRIUM_INFERENCE_URL%/}/predict_trade_candidates"
+          fi
           python wait_for_trained_model.py
           python warm_trained_model.py
 
@@ -377,6 +380,9 @@ jobs:
           TRAINED_MODEL_BACKOFF_SECONDS: "10"
           TRAINED_MODEL_BATCH_SIZE: "4"
         run: |
+          if [ -n "${CEREBRIUM_INFERENCE_URL}" ] && [[ "${CEREBRIUM_INFERENCE_URL}" != */predict_trade_candidates ]]; then
+            export CEREBRIUM_INFERENCE_URL="${CEREBRIUM_INFERENCE_URL%/}/predict_trade_candidates"
+          fi
           python main.py daily_job
 
       - name: Launch Lightning inference studio
