@@ -255,9 +255,11 @@ jobs:
           fi
           if [ -n "${configured_inference_url}" ]; then
             echo "has_inference_url=true" >> "$GITHUB_OUTPUT"
+            echo "resolved_inference_url=${configured_inference_url}" >> "$GITHUB_OUTPUT"
             echo "inference_url_source=configured"
           else
             echo "has_inference_url=false" >> "$GITHUB_OUTPUT"
+            echo "resolved_inference_url=" >> "$GITHUB_OUTPUT"
             echo "inference_url_source=missing"
             echo "AI primary inference URL is missing across CEREBRIUM_INFERENCE_URL/CEREBRIUM_TRAINED_MODEL_URL/TRAINED_MODEL_INFERENCE_URL" >&2
           fi
@@ -305,7 +307,7 @@ jobs:
         timeout-minutes: 45
         env:
           AI_PRIMARY_BACKEND: "cerebrium"
-          CEREBRIUM_INFERENCE_URL: ${{ secrets.CEREBRIUM_INFERENCE_URL }}
+          CEREBRIUM_INFERENCE_URL: ${{ steps.validate_cerebrium_primary_config.outputs.resolved_inference_url }}
           CEREBRIUM_API_KEY: ${{ secrets.CEREBRIUM_API_KEY || secrets.TRAINED_MODEL_API_KEY }}
           TRAINED_MODEL_MAX_RETRIES: "2"
           TRAINED_MODEL_BACKOFF_SECONDS: "10"
@@ -325,7 +327,7 @@ jobs:
         continue-on-error: true
         timeout-minutes: 3
         env:
-          CEREBRIUM_INFERENCE_URL: ${{ secrets.CEREBRIUM_INFERENCE_URL }}
+          CEREBRIUM_INFERENCE_URL: ${{ steps.validate_cerebrium_primary_config.outputs.resolved_inference_url }}
           CEREBRIUM_API_KEY: ${{ secrets.CEREBRIUM_API_KEY || secrets.TRAINED_MODEL_API_KEY }}
         run: |
           python - <<'PYCODE'
@@ -391,7 +393,7 @@ jobs:
           SENDER_EMAIL: ${{ secrets.SENDER_EMAIL }}
           SENDER_PASSWORD: ${{ secrets.SENDER_PASSWORD }}
           RECIPIENT_EMAIL: ${{ secrets.RECIPIENT_EMAIL }}
-          CEREBRIUM_INFERENCE_URL: ${{ secrets.CEREBRIUM_INFERENCE_URL }}
+          CEREBRIUM_INFERENCE_URL: ${{ steps.validate_cerebrium_primary_config.outputs.resolved_inference_url }}
           CEREBRIUM_API_KEY: ${{ secrets.CEREBRIUM_API_KEY || secrets.TRAINED_MODEL_API_KEY }}
           TRAINED_MODEL_API_KEY: ${{ secrets.TRAINED_MODEL_API_KEY }}
           TWELVEDATA_API_KEYS: ${{ secrets.TWELVEDATA_API_KEYS }}
@@ -507,7 +509,7 @@ jobs:
 
       - name: Run AI Trading Bot (Distilled Local Fallback)
         id: run_ai_bot_distilled_local
-        if: ${{ steps.install_base_dependencies.outcome == 'success' && !(github.event_name == 'workflow_dispatch' && inputs.run_in_lightning_studio) && ((github.event_name != 'workflow_dispatch') || (github.event_name == 'workflow_dispatch' && !inputs.disable_ai_trading)) && (steps.plan_ai_runtime.outputs.runtime_mode == 'distilled_local' || (steps.plan_ai_runtime.outputs.runtime_mode == 'cerebrium_full' && steps.validate_cerebrium_primary_config.outputs.has_inference_url == 'true' && (steps.warm_cerebrium_inference.outcome == 'failure' || steps.verify_cerebrium_predict.outcome == 'failure' || (steps.run_ai_bot_cerebrium.outcome == 'failure' && steps.run_ai_bot_cerebrium_retry.outcome != 'success'))) || (steps.plan_ai_runtime.outputs.runtime_mode == 'lightning_full' && (steps.launch_lightning_inference.outcome == 'failure' || steps.run_ai_bot_in_lightning_studio.outcome == 'failure'))) }}
+        if: ${{ steps.install_base_dependencies.outcome == 'success' && !(github.event_name == 'workflow_dispatch' && inputs.run_in_lightning_studio) && ((github.event_name != 'workflow_dispatch') || (github.event_name == 'workflow_dispatch' && !inputs.disable_ai_trading)) && (steps.plan_ai_runtime.outputs.runtime_mode == 'distilled_local' || (steps.plan_ai_runtime.outputs.runtime_mode == 'lightning_full' && (steps.launch_lightning_inference.outcome == 'failure' || steps.run_ai_bot_in_lightning_studio.outcome == 'failure'))) }}
         continue-on-error: true
         timeout-minutes: 60
         env:
@@ -687,7 +689,7 @@ jobs:
 
           if [ "${AI_EXPECTED}" = "false" ]; then
             ai_ok="true"
-          elif [ "${AI_RUNTIME_MODE}" = "cerebrium_full" ] && [ "${RUN_AI_CEREBRIUM_OUTCOME}" = "success" -o "${RUN_AI_CEREBRIUM_RETRY_OUTCOME}" = "success" -o "${RUN_AI_DISTILLED_OUTCOME}" = "success" -o "${RUN_AI_DISTILLED_RETRY_OUTCOME}" = "success" ]; then
+          elif [ "${AI_RUNTIME_MODE}" = "cerebrium_full" ] && [ "${RUN_AI_CEREBRIUM_OUTCOME}" = "success" -o "${RUN_AI_CEREBRIUM_RETRY_OUTCOME}" = "success" ]; then
             ai_ok="true"
           elif [ "${AI_RUNTIME_MODE}" = "lightning_full" ] && [ "${RUN_AI_STUDIO_OUTCOME}" = "success" -o "${RUN_AI_DISTILLED_OUTCOME}" = "success" -o "${RUN_AI_DISTILLED_RETRY_OUTCOME}" = "success" ]; then
             ai_ok="true"
@@ -747,21 +749,15 @@ jobs:
             if [ "${AI_RUNTIME_MODE}" = "cerebrium_full" ]; then
               if [ "${WARM_CEREBRIUM_OUTCOME}" != "success" ]; then
                 echo "Cerebrium warmup failed: ${WARM_CEREBRIUM_OUTCOME}"
-                if [ "${RUN_AI_DISTILLED_OUTCOME}" != "success" ] && [ "${RUN_AI_DISTILLED_RETRY_OUTCOME}" != "success" ]; then
-                  rc=1
-                fi
+                rc=1
               fi
               if [ "${WARM_CEREBRIUM_OUTCOME}" = "success" ] && [ "${VERIFY_CEREBRIUM_OUTCOME}" != "success" ]; then
                 echo "Cerebrium predict preflight failed: ${VERIFY_CEREBRIUM_OUTCOME}"
-                if [ "${RUN_AI_DISTILLED_OUTCOME}" != "success" ] && [ "${RUN_AI_DISTILLED_RETRY_OUTCOME}" != "success" ]; then
-                  rc=1
-                fi
+                rc=1
               fi
               if [ "${WARM_CEREBRIUM_OUTCOME}" = "success" ] && [ "${VERIFY_CEREBRIUM_OUTCOME}" = "success" ] && [ "${RUN_AI_CEREBRIUM_OUTCOME}" != "success" ] && [ "${RUN_AI_CEREBRIUM_RETRY_OUTCOME}" != "success" ]; then
                 echo "AI Cerebrium run failed: initial=${RUN_AI_CEREBRIUM_OUTCOME}, retry=${RUN_AI_CEREBRIUM_RETRY_OUTCOME}"
-                if [ "${RUN_AI_DISTILLED_OUTCOME}" != "success" ] && [ "${RUN_AI_DISTILLED_RETRY_OUTCOME}" != "success" ]; then
-                  rc=1
-                fi
+                rc=1
               fi
             elif [ "${AI_RUNTIME_MODE}" = "lightning_full" ]; then
               if [ "${INSTALL_LIGHTNING_OUTCOME}" != "success" ]; then
