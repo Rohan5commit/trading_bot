@@ -430,41 +430,6 @@ jobs:
         run: |
           python main.py daily_job
 
-      - name: Run AI Trading Bot on Cerebrium (Retry)
-        id: run_ai_bot_cerebrium_retry
-        if: ${{ always() && steps.install_base_dependencies.outcome == 'success' && !(github.event_name == 'workflow_dispatch' && inputs.run_in_lightning_studio) && ((github.event_name != 'workflow_dispatch') || (github.event_name == 'workflow_dispatch' && !inputs.disable_ai_trading)) && steps.plan_ai_runtime.outputs.runtime_mode == 'cerebrium_full' && steps.validate_cerebrium_config.outputs.has_inference_url == 'true' && steps.verify_cerebrium_predict.outcome == 'success' && steps.run_ai_bot_cerebrium.outcome == 'failure' }}
-        continue-on-error: true
-        timeout-minutes: 90
-        env:
-          SMTP_SERVER: ${{ secrets.SMTP_SERVER }}
-          SMTP_PORT: ${{ secrets.SMTP_PORT }}
-          SENDER_EMAIL: ${{ secrets.SENDER_EMAIL }}
-          SENDER_PASSWORD: ${{ secrets.SENDER_PASSWORD }}
-          RECIPIENT_EMAIL: ${{ secrets.RECIPIENT_EMAIL }}
-          CEREBRIUM_INFERENCE_URL: ${{ secrets.CEREBRIUM_INFERENCE_URL }}
-          CEREBRIUM_API_KEY: ${{ secrets.CEREBRIUM_API_KEY || secrets.TRAINED_MODEL_API_KEY }}
-          TRAINED_MODEL_API_KEY: ${{ secrets.TRAINED_MODEL_API_KEY }}
-          TWELVEDATA_API_KEYS: ${{ secrets.TWELVEDATA_API_KEYS }}
-          ARM_LIVE_TRADING: ${{ secrets.ARM_LIVE_TRADING }}
-          LOG_LEVEL: ${{ secrets.LOG_LEVEL }}
-          DISABLE_CORE_TRADING: "1"
-          AI_RUNTIME_MODE: "full"
-          AI_PRIMARY_BACKEND: "cerebrium"
-          AI_ROUTER_REASON: "cerebrium_retry_after_failure"
-          AI_PROMPT_CANDIDATES_LIMIT: "200"
-          TRAINED_MODEL_TIMEOUT_SECONDS: "600"
-          TRAINED_MODEL_READY_TIMEOUT_SECONDS: "1800"
-          TRAINED_MODEL_READY_POLL_SECONDS: "20"
-          TRAINED_MODEL_MAX_RETRIES: "2"
-          TRAINED_MODEL_BACKOFF_SECONDS: "10"
-          TRAINED_MODEL_BATCH_SIZE: "4"
-        run: |
-          if [ -n "${CEREBRIUM_INFERENCE_URL}" ] && [[ "${CEREBRIUM_INFERENCE_URL}" != */predict_trade_candidates ]]; then
-            export CEREBRIUM_INFERENCE_URL="${CEREBRIUM_INFERENCE_URL%/}/predict_trade_candidates"
-          fi
-          python main.py daily_job
-
-      - name: Launch Lightning inference studio
         id: launch_lightning_inference
         if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.run_in_lightning_studio) && ((github.event_name != 'workflow_dispatch') || (github.event_name == 'workflow_dispatch' && !inputs.disable_ai_trading)) && steps.plan_ai_runtime.outputs.runtime_mode == 'lightning_full' && steps.install_lightning_deps.outcome == 'success' }}
         continue-on-error: true
