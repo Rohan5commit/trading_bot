@@ -35,7 +35,7 @@ cooldown = 900
 scaling_metric = "concurrency_utilization"
 scaling_target = 100
 evaluation_interval_seconds = 30
-compute_tier = "interruptible"
+compute_tier = "on_demand"
 roll_out_duration_seconds = 0
 
 [cerebrium.dependencies.paths]
