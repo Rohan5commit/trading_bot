@@ -735,7 +735,7 @@ jobs:
 
           if [ "${AI_EXPECTED}" = "false" ]; then
             ai_ok="true"
-          elif [ "${AI_RUNTIME_MODE}" = "cerebrium_full" ] && [ "${RUN_AI_CEREBRIUM_OUTCOME}" = "success" -o "${RUN_AI_CEREBRIUM_RETRY_OUTCOME}" = "success" -o "${RUN_AI_DISTILLED_OUTCOME}" = "success" -o "${RUN_AI_DISTILLED_RETRY_OUTCOME}" = "success" ]; then
+          elif [ "${AI_RUNTIME_MODE}" = "cerebrium_full" ] && [ "${RUN_AI_CEREBRIUM_OUTCOME}" = "success" -o "${RUN_AI_CEREBRIUM_RETRY_OUTCOME}" = "success" ]; then
             ai_ok="true"
           elif [ "${AI_RUNTIME_MODE}" = "lightning_full" ] && [ "${RUN_AI_STUDIO_OUTCOME}" = "success" -o "${RUN_AI_DISTILLED_OUTCOME}" = "success" -o "${RUN_AI_DISTILLED_RETRY_OUTCOME}" = "success" ]; then
             ai_ok="true"
@@ -797,21 +797,15 @@ jobs:
             if [ "${AI_RUNTIME_MODE}" = "cerebrium_full" ]; then
               if [ "${WARM_CEREBRIUM_OUTCOME}" != "success" ]; then
                 echo "Cerebrium warmup failed: ${WARM_CEREBRIUM_OUTCOME}"
-                if [ "${RUN_AI_DISTILLED_OUTCOME}" != "success" ] && [ "${RUN_AI_DISTILLED_RETRY_OUTCOME}" != "success" ]; then
-                  rc=1
-                fi
+                rc=1
               fi
               if [ "${WARM_CEREBRIUM_OUTCOME}" = "success" ] && [ "${VERIFY_CEREBRIUM_OUTCOME}" != "success" ]; then
                 echo "Cerebrium predict preflight failed: ${VERIFY_CEREBRIUM_OUTCOME}"
-                if [ "${RUN_AI_DISTILLED_OUTCOME}" != "success" ] && [ "${RUN_AI_DISTILLED_RETRY_OUTCOME}" != "success" ]; then
-                  rc=1
-                fi
+                rc=1
               fi
               if [ "${WARM_CEREBRIUM_OUTCOME}" = "success" ] && [ "${VERIFY_CEREBRIUM_OUTCOME}" = "success" ] && [ "${RUN_AI_CEREBRIUM_OUTCOME}" != "success" ] && [ "${RUN_AI_CEREBRIUM_RETRY_OUTCOME}" != "success" ]; then
                 echo "AI Cerebrium run failed: initial=${RUN_AI_CEREBRIUM_OUTCOME}, retry=${RUN_AI_CEREBRIUM_RETRY_OUTCOME}"
-                if [ "${RUN_AI_DISTILLED_OUTCOME}" != "success" ] && [ "${RUN_AI_DISTILLED_RETRY_OUTCOME}" != "success" ]; then
-                  rc=1
-                fi
+                rc=1
               fi
             elif [ "${AI_RUNTIME_MODE}" = "lightning_full" ]; then
               if [ "${INSTALL_LIGHTNING_OUTCOME}" != "success" ]; then
