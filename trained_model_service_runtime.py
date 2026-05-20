@@ -618,3 +618,9 @@ def predict_trade_candidates(payload: Dict[str, Any]) -> dict[str, Any]:
         "model_used": MODEL_NAME,
         "signals": signals,
     }
+
+
+@app.post("/predict-trade-candidates", dependencies=[Depends(_require_api_key)])
+def predict_trade_candidates_hyphen(payload: Dict[str, Any]) -> dict[str, Any]:
+    """Compatibility alias for clients that use hyphenated route names."""
+    return predict_trade_candidates(payload)
