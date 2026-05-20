@@ -54,8 +54,8 @@ The app is configured with `min_replicas = 0`, so it is not always on. The daily
 
 1. Daily GitHub Actions restores the existing `data/`, `models/`, and registry cache.
 2. Core bot runs independently with `DISABLE_AI_TRADING=1`.
-3. AI runtime planning selects `cerebrium_full` when `CEREBRIUM_INFERENCE_URL` is present.
-4. The workflow warms Cerebrium and runs the AI bot with `DISABLE_CORE_TRADING=1`.
-5. If Cerebrium warmup or the Cerebrium AI run fails, the workflow executes the existing distilled fallback path without changing AI positions or memory.
+3. Direct runtime path is `python run_ai_daily_cerebrium.py`, which runs AI-only execution on Cerebrium first and writes `results/ai_runtime_plan.json`.
+4. If the Cerebrium daily job fails and `LIGHTNING_INFERENCE_URL` is configured, the direct runner retries once through Lightning HTTP as a fallback.
+5. GitHub scheduled AI execution is disabled; manual workflow dispatch remains available for diagnostics.
 
 AI manager context stays in SQLite and is sent to the remote model as compact `manager_context` in prediction payloads. Remote services do not write to production SQLite.
