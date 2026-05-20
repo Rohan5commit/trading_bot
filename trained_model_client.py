@@ -129,6 +129,7 @@ class TrainedModelTradeClient:
         last_exc = None
         prediction_url = self._prediction_url()
         tried_urls = set()
+        alternate_urls = self._alternate_prediction_urls(prediction_url)
         for attempt in range(self.max_retries + 1):
             attempt_started = time.time()
             logger.info(
@@ -164,12 +165,17 @@ class TrainedModelTradeClient:
             except (requests.Timeout, requests.ConnectionError, requests.HTTPError) as exc:
                 last_exc = exc
                 status_code = getattr(getattr(exc, 'response', None), 'status_code', None)
-                if status_code == 404:
-                    alt_url = self._alternate_prediction_url(prediction_url)
-                    if alt_url and alt_url not in tried_urls:
+                if status_code == 404 and alternate_urls:
+                    next_url = None
+                    while alternate_urls:
+                        candidate_url = alternate_urls.pop(0)
+                        if candidate_url not in tried_urls and candidate_url != prediction_url:
+                            next_url = candidate_url
+                            break
+                    if next_url:
                         tried_urls.add(prediction_url)
-                        prediction_url = alt_url
-                        logger.warning("Trained model 404 on %s; retrying once with alternate url %s", tried_urls, prediction_url)
+                        prediction_url = next_url
+                        logger.warning("Trained model 404 at %s; retrying with alternate url %s", exc.response.url if getattr(exc, "response", None) else "unknown", prediction_url)
                         continue
                 if attempt >= self.max_retries:
                     raise
@@ -249,15 +255,28 @@ class TrainedModelTradeClient:
             return url.rstrip("/") + "/predict_trade_candidates"
         return url
 
-    def _alternate_prediction_url(self, url: str) -> str | None:
+    def _alternate_prediction_urls(self, url: str) -> list[str]:
         raw = str(url or "").strip()
         if not raw:
-            return None
+            return []
+        out = []
         if raw.endswith('/predict_trade_candidates'):
-            return raw[: -len('/predict_trade_candidates')]
+            out.append(raw[: -len('/predict_trade_candidates')])
+            out.append(raw[: -len('/predict_trade_candidates')] + '/predict-trade-candidates')
+        if raw.endswith('/predict-trade-candidates'):
+            out.append(raw[: -len('/predict-trade-candidates')])
+            out.append(raw[: -len('/predict-trade-candidates')] + '/predict_trade_candidates')
         if self.provider in {"cerebrium", "cerebrium_full", "cerebrum"}:
-            return raw.rstrip('/') + '/predict_trade_candidates'
-        return None
+            out.append(raw.rstrip('/') + '/predict_trade_candidates')
+            out.append(raw.rstrip('/') + '/predict-trade-candidates')
+        # preserve order, unique
+        seen = set()
+        ordered = []
+        for item in out:
+            if item and item not in seen:
+                seen.add(item)
+                ordered.append(item)
+        return ordered
 
     def _health_url(self) -> str:
         url = (self.inference_url or "").strip()
