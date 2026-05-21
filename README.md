@@ -107,3 +107,5 @@ python run_ai_trading_smoke.py
 - Email: `rohan.santhoshkumar1@gmail.com`
 - The repo should use the GitHub secrets `LIGHTNING_USERNAME`, `LIGHTNING_API_KEY`, and `LIGHTNING_USER_ID` for that account
 - Do not switch deployment to the separate `rohansanthoshkumar` account unless explicitly told to do so
+
+<!-- redeploy -->
