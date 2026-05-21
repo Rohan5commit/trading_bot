@@ -324,13 +324,14 @@ def _fallback_signal(candidate: Dict[str, Any], error_hint: str = "") -> Dict[st
         sentiment = float(candidate.get("news_sentiment_7d", 0.0) or 0.0)
     except (TypeError, ValueError):
         sentiment = 0.0
-    score = (r5 * 0.7) + (sentiment * 0.3)
-    if score >= 0.02:
+    score = (r5 * 0.75) + (sentiment * 0.25)
+    # Distilled/runtime fallback should avoid all-neutral collapse; use a tighter threshold.
+    if score >= 0.006:
         label = "BUY"
-        confidence = 0.62
-    elif score <= -0.02:
+        confidence = 0.59
+    elif score <= -0.006:
         label = "SELL"
-        confidence = 0.62
+        confidence = 0.59
     else:
         label = "NEUTRAL"
         confidence = 0.5

@@ -6,6 +6,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import requests
+
 
 def _first_non_empty(*values: str | None) -> str:
     for value in values:
@@ -26,12 +28,35 @@ def _run_ai_smoke(env: dict[str, str]) -> int:
     return int(proc.returncode)
 
 
+def _resolve_lightning_url(env: dict[str, str]) -> str:
+    return _first_non_empty(
+        env.get("LIGHTNING_TRAINED_MODEL_URL"),
+        env.get("LIGHTNING_INFERENCE_URL"),
+        env.get("LIGHTNING_MODEL_URL"),
+    )
+
+
+def _preflight_predict(url: str, api_key: str) -> tuple[bool, str]:
+    headers = {"Content-Type": "application/json"}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+    payload = {"candidates": [{"symbol": "AAPL", "return_5d": 0.01, "news_sentiment_7d": 0.0}]}
+    try:
+        resp = requests.post(url, headers=headers, json=payload, timeout=45)
+        if 200 <= resp.status_code < 300:
+            return True, f"status={resp.status_code}"
+        return False, f"status={resp.status_code}"
+    except Exception as exc:
+        return False, str(exc)
+
+
 def main() -> None:
     base_env = os.environ.copy()
     base_env["DISABLE_CORE_TRADING"] = "1"
     base_env["AI_RUNTIME_MODE"] = "full"
     base_env["AI_PRIMARY_BACKEND"] = "cerebrium"
     base_env["AI_ROUTER_REASON"] = "cerebrium_primary_direct"
+    base_env["ALLOW_MISSING_EMAIL"] = "1"
 
     resolved_url = _first_non_empty(
         base_env.get("CEREBRIUM_TRAINED_MODEL_URL"),
@@ -49,6 +74,30 @@ def main() -> None:
         "reason": "cerebrium_primary_direct",
         "resolved_inference_url": resolved_url,
     }
+
+    lightning_url = _resolve_lightning_url(base_env)
+    api_key = str(base_env.get("TRAINED_MODEL_API_KEY") or "").strip()
+    preflight_ok, preflight_detail = _preflight_predict(resolved_url, api_key)
+    run_meta["primary_preflight"] = {"ok": preflight_ok, "detail": preflight_detail}
+
+    if not preflight_ok and lightning_url:
+        lightning_ok, lightning_detail = _preflight_predict(lightning_url, api_key)
+        run_meta["lightning_preflight"] = {"ok": lightning_ok, "detail": lightning_detail}
+        if lightning_ok:
+            fallback_env = base_env.copy()
+            fallback_env["AI_PRIMARY_BACKEND"] = "http"
+            fallback_env["AI_ROUTER_REASON"] = "lightning_preflight_after_cerebrium_unavailable"
+            fallback_env["CEREBRIUM_INFERENCE_URL"] = lightning_url
+            fallback_env["TRAINED_MODEL_INFERENCE_URL"] = lightning_url
+            fallback_rc = _run_daily_job(fallback_env)
+            run_meta["fallback_used"] = True
+            run_meta["fallback_backend"] = "lightning_http"
+            run_meta["fallback_inference_url"] = lightning_url
+            run_meta["ok"] = fallback_rc == 0
+            run_meta["path"] = "lightning_preflight_fallback_daily_job"
+            Path("results").mkdir(parents=True, exist_ok=True)
+            Path("results/ai_runtime_plan.json").write_text(json.dumps(run_meta, indent=2) + "\n", encoding="utf-8")
+            raise SystemExit(fallback_rc)
 
     rc = _run_daily_job(base_env)
     if rc == 0:
@@ -68,7 +117,7 @@ def main() -> None:
         Path("results/ai_runtime_plan.json").write_text(json.dumps(run_meta, indent=2) + "\n", encoding="utf-8")
         return
 
-    lightning_url = _first_non_empty(base_env.get("LIGHTNING_INFERENCE_URL"))
+    lightning_url = _resolve_lightning_url(base_env)
     if not lightning_url:
         # Optional continuity mode: keep AI runtime alive even if market-data ingestion breaks.
         allow_smoke_fallback = str(os.getenv("AI_DAILY_ALLOW_SMOKE_FALLBACK", "1")).strip().lower() in {"1", "true", "yes", "on"}
