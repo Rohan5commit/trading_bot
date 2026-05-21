@@ -222,60 +222,74 @@ class PriceIngestor:
         symbol = str(symbol or "").strip().upper()
         if not symbol:
             return None
+        symbol_variants = [symbol, f"{symbol}:US", f"{symbol}/USD"]
+        # De-dupe while preserving order
+        seen_variants = set()
+        symbol_variants = [s for s in symbol_variants if s and not (s in seen_variants or seen_variants.add(s))]
 
         outsz = int(outputsize or self.twelvedata_outputsize or 450)
         keys = self.twelvedata_keys.keys()
         if not keys:
             return None
 
-        for _ in range(len(keys)):
-            key = self.twelvedata_keys.next_key()
-            if not key:
-                break
-            params = {
-                "symbol": symbol,
-                "interval": "1day",
-                "format": "JSON",
-                "outputsize": outsz,
-                "apikey": key,
-            }
-            try:
-                r = requests.get(
-                    f"{self.twelvedata_base_url}/time_series",
-                    params=params,
-                    timeout=self.twelvedata_timeout,
-                    headers={"User-Agent": "trading_bot"},
-                )
-                if r.status_code == 429:
+        for symbol_variant in symbol_variants:
+            symbol_permanently_invalid = False
+            for _ in range(len(keys)):
+                key = self.twelvedata_keys.next_key()
+                if not key:
+                    break
+                params = {
+                    "symbol": symbol_variant,
+                    "interval": "1day",
+                    "format": "JSON",
+                    "outputsize": outsz,
+                    "apikey": key,
+                }
+                try:
+                    r = requests.get(
+                        f"{self.twelvedata_base_url}/time_series",
+                        params=params,
+                        timeout=self.twelvedata_timeout,
+                        headers={"User-Agent": "trading_bot"},
+                    )
+                    if r.status_code == 429:
+                        continue
+                    r.raise_for_status()
+                    payload = r.json()
+                except Exception:
                     continue
-                r.raise_for_status()
-                payload = r.json()
-            except Exception:
-                continue
 
-            if not isinstance(payload, dict):
-                continue
-            if payload.get("status") == "error":
-                # Common rate-limit message also comes through here.
-                logger.warning(f"TwelveData error for {symbol}: {payload.get('message', 'Unknown error')}")
-                continue
-            values = payload.get("values") or []
-            if not values:
-                continue
-            df = pd.DataFrame(values)
-            if "datetime" not in df.columns:
-                continue
-            df = df.rename(columns={"datetime": "date"})
-            for col in ["open", "high", "low", "close", "volume"]:
-                if col not in df.columns:
-                    df[col] = 0
-            df["symbol"] = symbol
-            df["date"] = pd.to_datetime(df["date"]).dt.date.astype(str)
-            for col in ["open", "high", "low", "close"]:
-                df[col] = pd.to_numeric(df[col], errors="coerce")
-            df["volume"] = pd.to_numeric(df["volume"], errors="coerce").fillna(0).astype(int)
-            df = df.dropna(subset=["open", "high", "low", "close"])
-            return df[["symbol", "date", "open", "high", "low", "close", "volume"]].sort_values("date")
+                if not isinstance(payload, dict):
+                    continue
+                if payload.get("status") == "error":
+                    message = str(payload.get("message") or "Unknown error")
+                    message_l = message.lower()
+                    # Permanent symbol errors should not retry every key; move to fallback source quickly.
+                    if "symbol" in message_l and "invalid" in message_l:
+                        logger.warning("TwelveData symbol invalid for %s (variant %s): %s", symbol, symbol_variant, message)
+                        symbol_permanently_invalid = True
+                        break
+                    logger.warning("TwelveData error for %s (variant %s): %s", symbol, symbol_variant, message)
+                    continue
+                values = payload.get("values") or []
+                if not values:
+                    continue
+                df = pd.DataFrame(values)
+                if "datetime" not in df.columns:
+                    continue
+                df = df.rename(columns={"datetime": "date"})
+                for col in ["open", "high", "low", "close", "volume"]:
+                    if col not in df.columns:
+                        df[col] = 0
+                df["symbol"] = symbol
+                df["date"] = pd.to_datetime(df["date"]).dt.date.astype(str)
+                for col in ["open", "high", "low", "close"]:
+                    df[col] = pd.to_numeric(df[col], errors="coerce")
+                df["volume"] = pd.to_numeric(df["volume"], errors="coerce").fillna(0).astype(int)
+                df = df.dropna(subset=["open", "high", "low", "close"])
+                return df[["symbol", "date", "open", "high", "low", "close", "volume"]].sort_values("date")
+            if symbol_permanently_invalid:
+                break
 
         return None
 
