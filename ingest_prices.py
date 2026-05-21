@@ -41,6 +41,7 @@ class PriceIngestor:
         self.lookback_days = self.config['data'].get('lookback_days', 60)
 
         self.price_source = (self.config.get("data", {}).get("sources", {}) or {}).get("prices", "stooq")
+        self.twelvedata_only = str(os.getenv("TWELVEDATA_STRICT_ONLY", "")).strip().lower() in {"1", "true", "yes", "on"} or str(self.price_source).strip().lower() == "twelvedata"
         providers = (self.config.get("data", {}).get("providers", {}) or {})
         td = providers.get("twelvedata", {}) if isinstance(providers, dict) else {}
         self.twelvedata_base_url = str(td.get("base_url", "https://api.twelvedata.com")).rstrip("/")
@@ -110,6 +111,8 @@ class PriceIngestor:
         # Some symbols with share classes use different separators on Stooq (e.g. BRK-B vs BRK.B),
         # so we try a few variants.
         symbol_clean = str(symbol or "").strip().lower()
+        if self.twelvedata_only:
+            return None
         if not symbol_clean:
             return None
 
@@ -121,7 +124,7 @@ class PriceIngestor:
             candidates.append(symbol_clean.replace("-", "."))
             candidates.append(symbol_clean.replace("-", "_"))
 
-        if not self.stooq_available:
+        if self.twelvedata_only or not self.stooq_available:
             return None
 
         # De-dupe while preserving order.
@@ -254,18 +257,27 @@ class PriceIngestor:
                     "outputsize": outsz,
                     "apikey": key,
                 }
-                try:
-                    r = requests.get(
-                        f"{self.twelvedata_base_url}/time_series",
-                        params=params,
-                        timeout=self.twelvedata_timeout,
-                        headers={"User-Agent": "trading_bot"},
-                    )
-                    if r.status_code == 429:
-                        continue
-                    r.raise_for_status()
-                    payload = r.json()
-                except Exception:
+                payload = None
+                for attempt in range(3):
+                    try:
+                        r = requests.get(
+                            f"{self.twelvedata_base_url}/time_series",
+                            params=params,
+                            timeout=self.twelvedata_timeout,
+                            headers={"User-Agent": "trading_bot"},
+                        )
+                        if r.status_code in {429, 500, 502, 503, 504}:
+                            if attempt < 2:
+                                time.sleep(0.6 * (attempt + 1))
+                                continue
+                        r.raise_for_status()
+                        payload = r.json()
+                        break
+                    except Exception:
+                        if attempt < 2:
+                            time.sleep(0.6 * (attempt + 1))
+                            continue
+                if payload is None:
                     continue
 
                 if not isinstance(payload, dict):

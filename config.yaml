@@ -1,6 +1,6 @@
 # General Configuration
 universe:
-  source: ./universe/sp500.csv
+  source: ./universe/us_top1000.csv
   auto_update: true
   min_market_cap: 1000000000  # $1B
 
@@ -26,7 +26,7 @@ data:
     # - stooq: free, no API key (slower for large universes)
     # - twelvedata: supports rotating multiple free-tier keys via TWELVEDATA_API_KEYS
     # - auto: use twelvedata if keys are present, otherwise fallback to stooq
-    prices: "auto"
+    prices: "twelvedata"
     news: "gdelt"
   cache_path: "./data/trading_bot.db"
   providers:
