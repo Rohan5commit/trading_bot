@@ -41,6 +41,7 @@ class PriceIngestor:
         self.lookback_days = self.config['data'].get('lookback_days', 60)
 
         self.price_source = (self.config.get("data", {}).get("sources", {}) or {}).get("prices", "stooq")
+        self.twelvedata_only = str(os.getenv("TWELVEDATA_STRICT_ONLY", "")).strip().lower() in {"1", "true", "yes", "on"} or str(self.price_source).strip().lower() == "twelvedata"
         providers = (self.config.get("data", {}).get("providers", {}) or {})
         td = providers.get("twelvedata", {}) if isinstance(providers, dict) else {}
         self.twelvedata_base_url = str(td.get("base_url", "https://api.twelvedata.com")).rstrip("/")
@@ -62,6 +63,7 @@ class PriceIngestor:
             static_keys=av.get("api_keys"),
         )
         
+        self.stooq_available = True
         os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
         self.init_db()
 
@@ -109,6 +111,8 @@ class PriceIngestor:
         # Some symbols with share classes use different separators on Stooq (e.g. BRK-B vs BRK.B),
         # so we try a few variants.
         symbol_clean = str(symbol or "").strip().lower()
+        if self.twelvedata_only:
+            return None
         if not symbol_clean:
             return None
 
@@ -119,6 +123,9 @@ class PriceIngestor:
         if "-" in symbol_clean:
             candidates.append(symbol_clean.replace("-", "."))
             candidates.append(symbol_clean.replace("-", "_"))
+
+        if self.twelvedata_only or not self.stooq_available:
+            return None
 
         # De-dupe while preserving order.
         seen = set()
@@ -143,12 +150,17 @@ class PriceIngestor:
                 df.columns = [c.lower() for c in df.columns]
                 required = {"date", "open", "high", "low", "close", "volume"}
                 if not required.issubset(set(df.columns)):
+                    cols = ",".join(df.columns)
                     logger.warning(
                         "Stooq returned unexpected columns for %s (s=%s): %s",
                         symbol,
                         stooq_symbol,
-                        ",".join(df.columns),
+                        cols,
                     )
+                    if "get your apikey" in cols.lower():
+                        logger.warning("Disabling Stooq fallback for this run: API key is now required.")
+                        self.stooq_available = False
+                        return None
                     continue
                 # Preserve canonical symbol as provided by universe file (usually uppercase).
                 df['symbol'] = str(symbol or "").strip().upper()
@@ -245,18 +257,27 @@ class PriceIngestor:
                     "outputsize": outsz,
                     "apikey": key,
                 }
-                try:
-                    r = requests.get(
-                        f"{self.twelvedata_base_url}/time_series",
-                        params=params,
-                        timeout=self.twelvedata_timeout,
-                        headers={"User-Agent": "trading_bot"},
-                    )
-                    if r.status_code == 429:
-                        continue
-                    r.raise_for_status()
-                    payload = r.json()
-                except Exception:
+                payload = None
+                for attempt in range(3):
+                    try:
+                        r = requests.get(
+                            f"{self.twelvedata_base_url}/time_series",
+                            params=params,
+                            timeout=self.twelvedata_timeout,
+                            headers={"User-Agent": "trading_bot"},
+                        )
+                        if r.status_code in {429, 500, 502, 503, 504}:
+                            if attempt < 2:
+                                time.sleep(0.6 * (attempt + 1))
+                                continue
+                        r.raise_for_status()
+                        payload = r.json()
+                        break
+                    except Exception:
+                        if attempt < 2:
+                            time.sleep(0.6 * (attempt + 1))
+                            continue
+                if payload is None:
                     continue
 
                 if not isinstance(payload, dict):
@@ -264,9 +285,14 @@ class PriceIngestor:
                 if payload.get("status") == "error":
                     message = str(payload.get("message") or "Unknown error")
                     message_l = message.lower()
-                    # Permanent symbol errors should not retry every key; move to fallback source quickly.
-                    if "symbol" in message_l and "invalid" in message_l:
-                        logger.warning("TwelveData symbol invalid for %s (variant %s): %s", symbol, symbol_variant, message)
+                    # Permanent symbol/plan errors should not retry every key; move to fallback source quickly.
+                    permanent_error = (
+                        ("symbol" in message_l and "invalid" in message_l)
+                        or ("available starting with" in message_l)
+                        or ("consider upgrading" in message_l)
+                    )
+                    if permanent_error:
+                        logger.warning("TwelveData non-retryable error for %s (variant %s): %s", symbol, symbol_variant, message)
                         symbol_permanently_invalid = True
                         break
                     logger.warning("TwelveData error for %s (variant %s): %s", symbol, symbol_variant, message)
