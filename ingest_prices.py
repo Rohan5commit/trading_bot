@@ -62,6 +62,7 @@ class PriceIngestor:
             static_keys=av.get("api_keys"),
         )
         
+        self.stooq_available = True
         os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
         self.init_db()
 
@@ -120,6 +121,9 @@ class PriceIngestor:
             candidates.append(symbol_clean.replace("-", "."))
             candidates.append(symbol_clean.replace("-", "_"))
 
+        if not self.stooq_available:
+            return None
+
         # De-dupe while preserving order.
         seen = set()
         tickers = []
@@ -143,12 +147,17 @@ class PriceIngestor:
                 df.columns = [c.lower() for c in df.columns]
                 required = {"date", "open", "high", "low", "close", "volume"}
                 if not required.issubset(set(df.columns)):
+                    cols = ",".join(df.columns)
                     logger.warning(
                         "Stooq returned unexpected columns for %s (s=%s): %s",
                         symbol,
                         stooq_symbol,
-                        ",".join(df.columns),
+                        cols,
                     )
+                    if "get your apikey" in cols.lower():
+                        logger.warning("Disabling Stooq fallback for this run: API key is now required.")
+                        self.stooq_available = False
+                        return None
                     continue
                 # Preserve canonical symbol as provided by universe file (usually uppercase).
                 df['symbol'] = str(symbol or "").strip().upper()
@@ -264,9 +273,14 @@ class PriceIngestor:
                 if payload.get("status") == "error":
                     message = str(payload.get("message") or "Unknown error")
                     message_l = message.lower()
-                    # Permanent symbol errors should not retry every key; move to fallback source quickly.
-                    if "symbol" in message_l and "invalid" in message_l:
-                        logger.warning("TwelveData symbol invalid for %s (variant %s): %s", symbol, symbol_variant, message)
+                    # Permanent symbol/plan errors should not retry every key; move to fallback source quickly.
+                    permanent_error = (
+                        ("symbol" in message_l and "invalid" in message_l)
+                        or ("available starting with" in message_l)
+                        or ("consider upgrading" in message_l)
+                    )
+                    if permanent_error:
+                        logger.warning("TwelveData non-retryable error for %s (variant %s): %s", symbol, symbol_variant, message)
                         symbol_permanently_invalid = True
                         break
                     logger.warning("TwelveData error for %s (variant %s): %s", symbol, symbol_variant, message)

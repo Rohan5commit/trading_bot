@@ -2145,11 +2145,15 @@ def run_daily_job(config_path=None):
     _finalize_pipeline_health(pipeline_stats)
     result = backtester.run_daily_test(pipeline_stats=pipeline_stats)
     email_sent = bool(result and result[-1])
-    
+    allow_missing_email = str(os.getenv("ALLOW_MISSING_EMAIL", "")).strip().lower() in {"1", "true", "yes", "on"}
+
     if email_sent:
         log_step("Backtest & Strategy", "Completed", "Report sent")
     else:
         log_step("Backtest & Strategy", "Warning", "Email failed or no signals")
+        if allow_missing_email:
+            log_step("Backtest & Strategy", "Completed", "Continuing despite missing email (ALLOW_MISSING_EMAIL=1)")
+            email_sent = True
 
     # Enforce storage limits
     try:
