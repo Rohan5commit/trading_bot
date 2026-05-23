@@ -6,8 +6,8 @@ concurrency:
 
 on:
   schedule:
-    # Runs at 00:00 UTC (8:00 AM SGT) Tuesday-Sunday
-    - cron: '0 0 * * 2-7'
+    # Runs at 00:00 UTC (8:00 AM SGT) Tuesday-Saturday
+    - cron: '0 0 * * 2-6'
   workflow_dispatch:
     inputs:
       run_in_lightning_studio:
