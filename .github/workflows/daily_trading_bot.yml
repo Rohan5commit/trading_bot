@@ -74,6 +74,16 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Enforce schedule day guard (Tue-Sat only)
+        if: ${{ github.event_name == 'schedule' }}
+        run: |
+          dow=$(date -u +%u)
+          # ISO day-of-week: 1=Mon ... 7=Sun. Allow Tue(2) through Sat(6) only.
+          if [ "${dow}" -lt 2 ] || [ "${dow}" -gt 6 ]; then
+            echo "Scheduled run blocked: UTC weekday ${dow} is outside Tue-Sat window." >&2
+            exit 1
+          fi
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
