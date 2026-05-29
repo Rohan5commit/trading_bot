@@ -825,12 +825,10 @@ class DailyBacktester:
             total_account_return = ((total_realized_dollars + total_unrealized_dollars) / initial_capital) if initial_capital else 0.0
             current_capital = initial_capital + total_realized_dollars
 
-            # Available cash (notional-based; shorts consume capital too)
+            # Report gross exposure while keeping cash side-aware. Shorts add exposure
+            # but do not spend cash like long purchases, so they must not drive cash negative.
             open_positions_now = self.core_tracker.get_open_positions()
-            invested_notional = 0.0
-            if not open_positions_now.empty:
-                invested_notional = float((open_positions_now["entry_price"] * open_positions_now["quantity"]).sum() or 0.0)
-            available_cash = float(current_capital) - invested_notional
+            invested_notional, available_cash = _position_cash_metrics(open_positions_now, current_capital)
 
             period_start_core = self.core_tracker.get_performance_period_start()
             report = {
@@ -1421,12 +1419,7 @@ class DailyBacktester:
             ai_realized_today = (ai_realized_today_dollars / ai_capital_pre_actions) if ai_capital_pre_actions else 0.0
 
             ai_current_capital = ai_initial_capital + ai_realized_total_dollars + ai_unreal_total_dollars
-            ai_invested_notional = 0.0
-            if ai_unrealized is not None and hasattr(ai_unrealized, "empty") and not ai_unrealized.empty:
-                price_series = pd.to_numeric(ai_unrealized.get("current_price"), errors="coerce").fillna(0.0)
-                quantity_series = pd.to_numeric(ai_unrealized.get("quantity"), errors="coerce").fillna(0.0)
-                ai_invested_notional = float((price_series * quantity_series).sum() or 0.0)
-            ai_available_cash = float(ai_current_capital) - ai_invested_notional
+            ai_invested_notional, ai_available_cash = _position_cash_metrics(ai_unrealized, ai_current_capital)
 
             if isinstance(ai_llm_status, dict):
                 ai_llm_status["target_positions"] = len(ai_trades)

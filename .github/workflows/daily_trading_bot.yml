@@ -474,6 +474,7 @@ jobs:
           ARM_LIVE_TRADING: ${{ secrets.ARM_LIVE_TRADING }}
           LOG_LEVEL: ${{ secrets.LOG_LEVEL }}
           DISABLE_CORE_TRADING: "1"
+          ALLOW_MISSING_EMAIL: "1"
           AI_RUNTIME_MODE: "full"
           AI_PRIMARY_BACKEND: "cerebrium"
           AI_ROUTER_REASON: ${{ steps.plan_ai_runtime.outputs.reason }}
@@ -505,6 +506,7 @@ jobs:
           ARM_LIVE_TRADING: ${{ secrets.ARM_LIVE_TRADING }}
           LOG_LEVEL: ${{ secrets.LOG_LEVEL }}
           DISABLE_CORE_TRADING: "1"
+          ALLOW_MISSING_EMAIL: "1"
           AI_RUNTIME_MODE: "full"
           AI_PRIMARY_BACKEND: "cerebrium"
           AI_ROUTER_REASON: "cerebrium_retry_after_failure"
@@ -563,6 +565,7 @@ jobs:
           ARM_LIVE_TRADING: ${{ secrets.ARM_LIVE_TRADING }}
           LOG_LEVEL: ${{ secrets.LOG_LEVEL }}
           DISABLE_CORE_TRADING: "1"
+          ALLOW_MISSING_EMAIL: "1"
           AI_RUNTIME_MODE: "full"
           AI_ROUTER_REASON: ${{ steps.plan_ai_runtime.outputs.reason }}
           AI_PROMPT_CANDIDATES_LIMIT: "200"
@@ -597,6 +600,7 @@ jobs:
           ARM_LIVE_TRADING: ${{ secrets.ARM_LIVE_TRADING }}
           LOG_LEVEL: ${{ secrets.LOG_LEVEL }}
           DISABLE_CORE_TRADING: "1"
+          ALLOW_MISSING_EMAIL: "1"
           AI_RUNTIME_MODE: "distilled_local"
           AI_ROUTER_REASON: ${{ steps.plan_ai_runtime.outputs.runtime_mode == 'cerebrium_full' && steps.validate_cerebrium_primary_config.outputs.has_inference_url == 'true' && 'distilled_after_cerebrium_failure' || (steps.plan_ai_runtime.outputs.runtime_mode == 'lightning_full' && 'distilled_after_lightning_failure' || steps.plan_ai_runtime.outputs.reason) }}
         run: |
@@ -619,6 +623,7 @@ jobs:
           ARM_LIVE_TRADING: ${{ secrets.ARM_LIVE_TRADING }}
           LOG_LEVEL: ${{ secrets.LOG_LEVEL }}
           DISABLE_CORE_TRADING: "1"
+          ALLOW_MISSING_EMAIL: "1"
           AI_RUNTIME_MODE: "distilled_local"
           AI_ROUTER_REASON: "distilled_emergency_retry_after_failure"
           TRAINED_MODEL_TIMEOUT_SECONDS: "450"
