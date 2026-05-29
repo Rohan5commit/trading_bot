@@ -70,7 +70,6 @@ def main() -> None:
     base_env["AI_RUNTIME_MODE"] = "full"
     base_env["AI_PRIMARY_BACKEND"] = "cerebrium"
     base_env["AI_ROUTER_REASON"] = "cerebrium_primary_direct"
-    base_env["ALLOW_MISSING_EMAIL"] = "1"
 
     resolved_url = _first_non_empty(
         base_env.get("CEREBRIUM_TRAINED_MODEL_URL"),
