@@ -747,7 +747,7 @@ jobs:
           RECIPIENT_EMAIL: ${{ secrets.RECIPIENT_EMAIL }}
           RUN_URL: ${{ format('{0}/{1}/actions/runs/{2}', github.server_url, github.repository, github.run_id) }}
           CORE_EXPECTED: ${{ (github.event_name != 'workflow_dispatch') || (github.event_name == 'workflow_dispatch' && !inputs.disable_core_trading) }}
-          AI_EXPECTED: "false"
+          AI_EXPECTED: ${{ (github.event_name != 'workflow_dispatch') || (github.event_name == 'workflow_dispatch' && !inputs.disable_ai_trading) }}
           BASE_DEPS_OUTCOME: ${{ steps.install_base_dependencies.outcome }}
           CORE_OUTCOME: ${{ steps.run_core_bot.outcome }}
           CORE_RETRY_OUTCOME: ${{ steps.run_core_bot_retry.outcome }}
@@ -807,7 +807,7 @@ jobs:
           CORE_OUTCOME: ${{ steps.run_core_bot.outcome }}
           CORE_RETRY_OUTCOME: ${{ steps.run_core_bot_retry.outcome }}
           CORE_EXPECTED: ${{ (github.event_name != 'workflow_dispatch') || (github.event_name == 'workflow_dispatch' && !inputs.disable_core_trading) }}
-          AI_EXPECTED: "false"
+          AI_EXPECTED: ${{ (github.event_name != 'workflow_dispatch') || (github.event_name == 'workflow_dispatch' && !inputs.disable_ai_trading) }}
           INSTALL_LIGHTNING_OUTCOME: ${{ steps.install_lightning_deps.outcome }}
           AI_RUNTIME_MODE: ${{ steps.plan_ai_runtime.outputs.runtime_mode }}
           LAUNCH_LIGHTNING_OUTCOME: ${{ steps.launch_lightning_inference.outcome }}
