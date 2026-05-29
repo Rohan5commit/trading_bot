@@ -49,27 +49,6 @@ def _resolve_path(base_dir, path_value):
     return os.path.join(base_dir, path_value)
 
 
-def _position_cash_metrics(open_positions, current_capital):
-    """Return gross exposure and non-negative cash using side-aware notional.
-
-    Gross exposure includes longs and shorts for reporting. Available cash only
-    subtracts long notional; short exposure is risk exposure, not cash spent.
-    """
-    if open_positions is None or not hasattr(open_positions, "empty") or open_positions.empty:
-        return 0.0, max(0.0, float(current_capital or 0.0))
-
-    df = open_positions.copy()
-    price_col = "current_price" if "current_price" in df.columns else "entry_price"
-    prices = pd.to_numeric(df.get(price_col), errors="coerce").fillna(0.0).clip(lower=0.0)
-    quantities = pd.to_numeric(df.get("quantity"), errors="coerce").fillna(0.0).abs()
-    notional = prices * quantities
-    sides = df.get("side", pd.Series(["LONG"] * len(df), index=df.index)).fillna("LONG").astype(str).str.upper()
-
-    gross_exposure = float(notional.sum() or 0.0)
-    long_notional = float(notional[sides != "SHORT"].sum() or 0.0)
-    available_cash = max(0.0, float(current_capital or 0.0) - long_notional)
-    return gross_exposure, available_cash
-
 
 def _get_open_position_symbols(config_path, table_names=("positions", "positions_ai")):
     """Return distinct OPEN symbols across the requested position tables."""
