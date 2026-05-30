@@ -49,6 +49,7 @@ def _resolve_path(base_dir, path_value):
     return os.path.join(base_dir, path_value)
 
 
+
 def _get_open_position_symbols(config_path, table_names=("positions", "positions_ai")):
     """Return distinct OPEN symbols across the requested position tables."""
     config = _load_config(config_path)
