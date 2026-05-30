@@ -4,6 +4,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import requests
@@ -41,13 +42,26 @@ def _preflight_predict(url: str, api_key: str) -> tuple[bool, str]:
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
     payload = {"candidates": [{"symbol": "AAPL", "return_5d": 0.01, "news_sentiment_7d": 0.0}]}
-    try:
-        resp = requests.post(url, headers=headers, json=payload, timeout=45)
-        if 200 <= resp.status_code < 300:
-            return True, f"status={resp.status_code}"
-        return False, f"status={resp.status_code}"
-    except Exception as exc:
-        return False, str(exc)
+
+    attempts = 3
+    transient_statuses = {429, 500, 502, 503, 504}
+    details: list[str] = []
+
+    for attempt in range(1, attempts + 1):
+        try:
+            resp = requests.post(url, headers=headers, json=payload, timeout=45)
+            details.append(f"attempt={attempt}:status={resp.status_code}")
+            if 200 <= resp.status_code < 300:
+                return True, "; ".join(details)
+            if resp.status_code not in transient_statuses:
+                return False, "; ".join(details)
+        except requests.RequestException as exc:
+            details.append(f"attempt={attempt}:exception={exc}")
+
+        if attempt < attempts:
+            time.sleep(min(8, 2 * attempt))
+
+    return False, "; ".join(details)
 
 
 def main() -> None:
@@ -56,7 +70,6 @@ def main() -> None:
     base_env["AI_RUNTIME_MODE"] = "full"
     base_env["AI_PRIMARY_BACKEND"] = "cerebrium"
     base_env["AI_ROUTER_REASON"] = "cerebrium_primary_direct"
-    base_env["ALLOW_MISSING_EMAIL"] = "1"
 
     resolved_url = _first_non_empty(
         base_env.get("CEREBRIUM_TRAINED_MODEL_URL"),
