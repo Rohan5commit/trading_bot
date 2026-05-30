@@ -169,22 +169,6 @@ jobs:
         run: |
           python main.py daily_job
 
-      - name: Send Core Failure Report
-        if: ${{ always() && !(github.event_name == 'workflow_dispatch' && inputs.run_in_lightning_studio) && steps.run_core_bot.outcome == 'failure' && steps.run_core_bot_retry.outcome != 'success' }}
-        continue-on-error: true
-        env:
-          SMTP_SERVER: ${{ secrets.SMTP_SERVER }}
-          SMTP_PORT: ${{ secrets.SMTP_PORT }}
-          SENDER_EMAIL: ${{ secrets.SENDER_EMAIL }}
-          SENDER_PASSWORD: ${{ secrets.SENDER_PASSWORD }}
-          RECIPIENT_EMAIL: ${{ secrets.RECIPIENT_EMAIL }}
-          RUN_URL: ${{ format('{0}/{1}/actions/runs/{2}', github.server_url, github.repository, github.run_id) }}
-        run: |
-          python send_failure_report.py \
-            --strategy-tag Core \
-            --source "Run Trading Bot" \
-            --message "Core daily job failed before sending its report email. Run: ${RUN_URL}"
-
       - name: Run Trading Bot (Core Retry)
         id: run_core_bot_retry
         if: ${{ always() && steps.install_base_dependencies.outcome == 'success' && !(github.event_name == 'workflow_dispatch' && inputs.run_in_lightning_studio) && !inputs.disable_core_trading && steps.run_core_bot.outcome == 'failure' }}
@@ -203,6 +187,23 @@ jobs:
           DISABLE_AI_TRADING: "1"
         run: |
           python main.py daily_job
+
+      - name: Send Core Failure Report
+        if: ${{ always() && !(github.event_name == 'workflow_dispatch' && inputs.run_in_lightning_studio) && steps.run_core_bot.outcome == 'failure' && steps.run_core_bot_retry.outcome != 'success' }}
+        continue-on-error: true
+        env:
+          SMTP_SERVER: ${{ secrets.SMTP_SERVER }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SENDER_EMAIL: ${{ secrets.SENDER_EMAIL }}
+          SENDER_PASSWORD: ${{ secrets.SENDER_PASSWORD }}
+          RECIPIENT_EMAIL: ${{ secrets.RECIPIENT_EMAIL }}
+          RUN_URL: ${{ format('{0}/{1}/actions/runs/{2}', github.server_url, github.repository, github.run_id) }}
+        run: |
+          python send_failure_report.py \
+            --strategy-tag Core \
+            --source "Run Trading Bot" \
+            --message "Core daily job failed after retry and did not confirm its report email. Run: ${RUN_URL}"
+
 
       - name: Install Lightning dependencies
         id: install_lightning_deps
